@@ -180,8 +180,7 @@ func (m Dashboard) Update(msg tea.Msg) (Component, tea.Cmd) {
 }
 
 func (m Dashboard) View() string {
-	title := Styles.Title.Width(m.width).Align(lipgloss.Center).Render(m.app.Settings.Name)
-
+	// Build info box content
 	var status string
 	var statusColor color.Color
 	if m.upgrading {
@@ -202,7 +201,24 @@ func (m Dashboard) View() string {
 		stateDisplay += fmt.Sprintf(" (up %s)", formatDuration(time.Since(m.app.RunningSince)))
 	}
 
-	content := lipgloss.NewStyle().PaddingLeft(2).Render(stateDisplay)
+	// Inner width accounts for border (2) and padding (2)
+	innerWidth := m.width - 4
+
+	var infoLines []string
+	titleLine := Styles.Title.Width(innerWidth).Align(lipgloss.Center).Render(m.app.Settings.Name)
+	infoLines = append(infoLines, titleLine)
+	infoLines = append(infoLines, stateDisplay)
+	if url := m.app.Settings.URL(); url != "" {
+		infoLines = append(infoLines, fmt.Sprintf("URL: %s", url))
+	}
+
+	infoContent := strings.Join(infoLines, "\n")
+	infoBox := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#6272a4")).
+		Padding(0, 1).
+		Width(m.width).
+		Render(infoContent)
 
 	// Charts side by side
 	charts := lipgloss.JoinHorizontal(lipgloss.Top, m.allReqChart.View(), m.errorChart.View())
@@ -220,7 +236,7 @@ func (m Dashboard) View() string {
 	}
 
 	// Calculate available height for main content
-	topContent := title + "\n\n" + content + "\n\n" + charts
+	topContent := infoBox + "\n" + charts
 
 	topHeight := lipgloss.Height(topContent)
 	bottomHeight := lipgloss.Height(bottomContent)

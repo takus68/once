@@ -40,6 +40,16 @@ func (s ApplicationSettings) TLSEnabled() bool {
 	return s.Host != "" && !s.DisableTLS && !isLocalhost(s.Host)
 }
 
+func (s ApplicationSettings) URL() string {
+	if s.Host == "" {
+		return ""
+	}
+	if s.TLSEnabled() {
+		return "https://" + s.Host
+	}
+	return "http://" + s.Host
+}
+
 func (s ApplicationSettings) BuildEnv(secretKeyBase string) []string {
 	env := make([]string, 0, len(s.EnvVars)+2)
 	env = append(env, "SECRET_KEY_BASE="+secretKeyBase)
