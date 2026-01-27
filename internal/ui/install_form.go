@@ -27,11 +27,11 @@ type InstallFormSubmitMsg struct {
 type InstallFormCancelMsg struct{}
 
 type InstallForm struct {
-	width, height  int
-	focused        installFormField
-	imageRefInput  textinput.Model
-	hostnameInput  textinput.Model
-	lastAppName    string
+	width, height int
+	focused       installFormField
+	imageRefInput textinput.Model
+	hostnameInput textinput.Model
+	lastAppName   string
 }
 
 func NewInstallForm() InstallForm {
@@ -94,57 +94,21 @@ func (m InstallForm) Update(msg tea.Msg) (InstallForm, tea.Cmd) {
 }
 
 func (m InstallForm) View() string {
-	focusedColor := lipgloss.Color("#FFA500")
-
-	labelStyle := lipgloss.NewStyle().Bold(true)
-	inputStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#6272a4")).
-		Padding(0, 1).
-		MarginBottom(1)
-
-	focusedInputStyle := inputStyle.BorderForeground(focusedColor)
-
 	// Image ref field
-	imageRefLabel := labelStyle.Render("Image")
-	imageRefStyle := inputStyle
-	if m.focused == fieldImageRef {
-		imageRefStyle = focusedInputStyle
-	}
-	imageRefField := imageRefStyle.Render(m.imageRefInput.View())
+	imageRefLabel := Styles.Label.Render("Image")
+	imageRefField := Styles.Focus(Styles.Input, m.focused == fieldImageRef).
+		Render(m.imageRefInput.View())
 
 	// Hostname field
-	hostnameLabel := labelStyle.Render("Hostname")
-	hostnameStyle := inputStyle
-	if m.focused == fieldHostname {
-		hostnameStyle = focusedInputStyle
-	}
-	hostnameField := hostnameStyle.Render(m.hostnameInput.View())
+	hostnameLabel := Styles.Label.Render("Hostname")
+	hostnameField := Styles.Focus(Styles.Input, m.focused == fieldHostname).
+		Render(m.hostnameInput.View())
 
 	// Buttons
-	buttonStyle := lipgloss.NewStyle().
-		Padding(0, 2).
-		MarginRight(1).
-		Border(lipgloss.RoundedBorder())
-
-	primaryButtonStyle := buttonStyle.
-		BorderForeground(Colors.Primary)
-
-	secondaryButtonStyle := buttonStyle.
-		BorderForeground(lipgloss.Color("#6272a4"))
-
-	var installButton, cancelButton string
-	if m.focused == fieldInstallButton {
-		installButton = buttonStyle.BorderForeground(focusedColor).Render("Install")
-	} else {
-		installButton = primaryButtonStyle.Render("Install")
-	}
-
-	if m.focused == fieldCancelButton {
-		cancelButton = buttonStyle.BorderForeground(focusedColor).Render("Cancel")
-	} else {
-		cancelButton = secondaryButtonStyle.Render("Cancel")
-	}
+	installButton := Styles.Focus(Styles.ButtonPrimary, m.focused == fieldInstallButton).
+		Render("Install")
+	cancelButton := Styles.Focus(Styles.Button, m.focused == fieldCancelButton).
+		Render("Cancel")
 
 	buttons := lipgloss.JoinHorizontal(lipgloss.Center, installButton, cancelButton)
 

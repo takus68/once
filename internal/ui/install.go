@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"strings"
+
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
@@ -116,10 +118,10 @@ func (m Install) View() string {
 	bottomHeight := lipgloss.Height(helpLine)
 	middleHeight := max(m.height-topHeight-bottomHeight, 0)
 
-	middle := ""
+	var middle strings.Builder
 	for range middleHeight {
-		middle += "\n"
+		middle.WriteString("\n")
 	}
 
-	return topContent + middle + helpLine
+	return topContent + middle.String() + helpLine
 }
