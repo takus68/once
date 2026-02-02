@@ -1,6 +1,9 @@
 package docker
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -15,6 +18,7 @@ import (
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/pkg/stdcopy"
 )
 
 type SMTPSettings struct {
@@ -256,6 +260,47 @@ func (a *Application) Deploy(ctx context.Context, progress DeployProgressCallbac
 	return nil
 }
 
+func (a *Application) Backup(ctx context.Context, w io.Writer) error {
+	containerName, err := a.ContainerName(ctx)
+	if err != nil {
+		return fmt.Errorf("getting container name: %w", err)
+	}
+
+	if err := a.runHookScript(ctx, containerName, "pre-backup"); err != nil {
+		return fmt.Errorf("running pre-backup script: %w", err)
+	}
+
+	vol, err := a.Volume(ctx)
+	if err != nil {
+		return fmt.Errorf("getting volume: %w", err)
+	}
+
+	gw := gzip.NewWriter(w)
+	defer gw.Close()
+	tw := tar.NewWriter(gw)
+	defer tw.Close()
+
+	if err := writeTarEntry(tw, "amar.application.json", []byte(a.Settings.Marshal())); err != nil {
+		return fmt.Errorf("writing application settings: %w", err)
+	}
+
+	if err := writeTarEntry(tw, "amar.volume.json", []byte(vol.Settings.Marshal())); err != nil {
+		return fmt.Errorf("writing volume settings: %w", err)
+	}
+
+	reader, _, err := a.namespace.client.CopyFromContainer(ctx, containerName, "/rails/storage")
+	if err != nil {
+		return fmt.Errorf("copying from container: %w", err)
+	}
+	defer reader.Close()
+
+	if err := copyTarEntries(reader, tw); err != nil {
+		return fmt.Errorf("copying volume contents: %w", err)
+	}
+
+	return nil
+}
+
 func (a *Application) Destroy(ctx context.Context, destroyVolumes bool) error {
 	prefix := fmt.Sprintf("%s-app-%s-", a.namespace.name, a.Settings.Name)
 
@@ -290,6 +335,46 @@ func (a *Application) Destroy(ctx context.Context, destroyVolumes bool) error {
 }
 
 // Private
+
+func (a *Application) runHookScript(ctx context.Context, containerName, name string) error {
+	cmd := []string{"/scripts/" + name}
+
+	execResp, err := a.namespace.client.ContainerExecCreate(ctx, containerName, container.ExecOptions{
+		Cmd:          cmd,
+		AttachStdout: true,
+		AttachStderr: true,
+	})
+	if err != nil {
+		return fmt.Errorf("creating exec: %w", err)
+	}
+
+	resp, err := a.namespace.client.ContainerExecAttach(ctx, execResp.ID, container.ExecStartOptions{})
+	if err != nil {
+		return fmt.Errorf("attaching exec: %w", err)
+	}
+	defer resp.Close()
+
+	var stdout, stderr bytes.Buffer
+	if _, err := stdcopy.StdCopy(&stdout, &stderr, resp.Reader); err != nil {
+		return fmt.Errorf("reading exec output: %w", err)
+	}
+
+	inspect, err := a.namespace.client.ContainerExecInspect(ctx, execResp.ID)
+	if err != nil {
+		return fmt.Errorf("inspecting exec: %w", err)
+	}
+
+	// Exit codes 126 (not executable) and 127 (not found) mean the script doesn't exist
+	if inspect.ExitCode == 126 || inspect.ExitCode == 127 {
+		return nil
+	}
+
+	if inspect.ExitCode != 0 {
+		return fmt.Errorf("hook script %q failed with exit code %d: %s", name, inspect.ExitCode, stderr.String())
+	}
+
+	return nil
+}
 
 func (a *Application) containerConfig(env []string) *container.Config {
 	return &container.Config{
@@ -350,4 +435,40 @@ func randomID(length int) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(bytes)[:length], nil
+}
+
+func writeTarEntry(tw *tar.Writer, name string, data []byte) error {
+	header := &tar.Header{
+		Name: name,
+		Mode: 0644,
+		Size: int64(len(data)),
+	}
+	if err := tw.WriteHeader(header); err != nil {
+		return err
+	}
+	_, err := tw.Write(data)
+	return err
+}
+
+func copyTarEntries(src io.Reader, dst *tar.Writer) error {
+	tr := tar.NewReader(src)
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+
+		if err := dst.WriteHeader(header); err != nil {
+			return err
+		}
+
+		if header.Size > 0 {
+			if _, err := io.Copy(dst, tr); err != nil {
+				return err
+			}
+		}
+	}
 }
