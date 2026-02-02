@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -20,6 +21,13 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/pkg/stdcopy"
 )
+
+var (
+	ErrApplicationExists = errors.New("application already exists")
+	ErrInvalidBackup     = errors.New("invalid backup archive")
+)
+
+const BackupDataDir = "data"
 
 type SMTPSettings struct {
 	Server   string `json:"s,omitempty"`
@@ -294,7 +302,7 @@ func (a *Application) Backup(ctx context.Context, w io.Writer) error {
 	}
 	defer reader.Close()
 
-	if err := copyTarEntries(reader, tw); err != nil {
+	if err := copyTarEntriesWithPrefix(reader, tw, "storage", BackupDataDir); err != nil {
 		return fmt.Errorf("copying volume contents: %w", err)
 	}
 
@@ -450,7 +458,7 @@ func writeTarEntry(tw *tar.Writer, name string, data []byte) error {
 	return err
 }
 
-func copyTarEntries(src io.Reader, dst *tar.Writer) error {
+func copyTarEntriesWithPrefix(src io.Reader, dst *tar.Writer, oldPrefix, newPrefix string) error {
 	tr := tar.NewReader(src)
 	for {
 		header, err := tr.Next()
@@ -459,6 +467,14 @@ func copyTarEntries(src io.Reader, dst *tar.Writer) error {
 		}
 		if err != nil {
 			return err
+		}
+
+		if oldPrefix != "" && newPrefix != "" {
+			if header.Name == oldPrefix {
+				header.Name = newPrefix
+			} else if strings.HasPrefix(header.Name, oldPrefix+"/") {
+				header.Name = newPrefix + strings.TrimPrefix(header.Name, oldPrefix)
+			}
 		}
 
 		if err := dst.WriteHeader(header); err != nil {

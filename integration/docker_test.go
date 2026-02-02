@@ -1,7 +1,12 @@
 package integration
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
+	"encoding/json"
+	"io"
 	"net"
 	"strings"
 	"testing"
@@ -262,6 +267,155 @@ func TestContainerLogConfig(t *testing.T) {
 	assertContainerLogConfig(t, ctx, containerName)
 }
 
+func TestBackup(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	ns, err := docker.NewNamespace("amar-backup-test")
+	require.NoError(t, err)
+	defer ns.Teardown(ctx, true)
+
+	require.NoError(t, ns.EnsureNetwork(ctx))
+	require.NoError(t, ns.Proxy().Boot(ctx, getProxyPorts(t)))
+
+	imageName := "ghcr.io/basecamp/once-campfire:main"
+	app := ns.AddApplication(docker.ApplicationSettings{
+		Name:  "backupapp",
+		Image: imageName,
+	})
+	require.NoError(t, app.Deploy(ctx, nil))
+
+	containerName, err := app.ContainerName(ctx)
+	require.NoError(t, err)
+
+	// Create a test file in storage
+	execInContainer(t, ctx, containerName, []string{
+		"sh", "-c", "echo 'test content' > /rails/storage/testfile.txt",
+	})
+
+	var buf bytes.Buffer
+	require.NoError(t, app.Backup(ctx, &buf))
+
+	entries := extractTarGz(t, &buf)
+
+	assert.Contains(t, entries, "amar.application.json")
+	var appSettings docker.ApplicationSettings
+	require.NoError(t, json.Unmarshal(entries["amar.application.json"], &appSettings))
+	assert.Equal(t, "backupapp", appSettings.Name)
+	assert.Equal(t, imageName, appSettings.Image)
+
+	assert.Contains(t, entries, "amar.volume.json")
+	var volSettings docker.ApplicationVolumeSettings
+	require.NoError(t, json.Unmarshal(entries["amar.volume.json"], &volSettings))
+	assert.NotEmpty(t, volSettings.SecretKeyBase)
+
+	assert.Contains(t, entries, "data/testfile.txt")
+	assert.Equal(t, "test content\n", string(entries["data/testfile.txt"]))
+}
+
+func TestRestore(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	// Create and backup an app
+	ns1, err := docker.NewNamespace("amar-restore-src")
+	require.NoError(t, err)
+	defer ns1.Teardown(ctx, true)
+
+	require.NoError(t, ns1.EnsureNetwork(ctx))
+	require.NoError(t, ns1.Proxy().Boot(ctx, getProxyPorts(t)))
+
+	imageName := "ghcr.io/basecamp/once-campfire:main"
+	app := ns1.AddApplication(docker.ApplicationSettings{
+		Name:  "restoreapp",
+		Image: imageName,
+		Host:  "restore.localhost",
+	})
+	require.NoError(t, app.Deploy(ctx, nil))
+
+	containerName, err := app.ContainerName(ctx)
+	require.NoError(t, err)
+
+	execInContainer(t, ctx, containerName, []string{
+		"sh", "-c", "echo 'restore test data' > /rails/storage/restore-test.txt",
+	})
+
+	vol, err := app.Volume(ctx)
+	require.NoError(t, err)
+	originalSecretKeyBase := vol.SecretKeyBase()
+
+	var backupBuf bytes.Buffer
+	require.NoError(t, app.Backup(ctx, &backupBuf))
+
+	// Restore to a different namespace
+	ns2, err := docker.NewNamespace("amar-restore-dst")
+	require.NoError(t, err)
+	defer ns2.Teardown(ctx, true)
+
+	require.NoError(t, ns2.EnsureNetwork(ctx))
+	require.NoError(t, ns2.Proxy().Boot(ctx, getProxyPorts(t)))
+
+	restoredApp, err := ns2.Restore(ctx, &backupBuf)
+	require.NoError(t, err)
+
+	// Verify settings were restored
+	assert.Equal(t, "restoreapp", restoredApp.Settings.Name)
+	assert.Equal(t, imageName, restoredApp.Settings.Image)
+	assert.Equal(t, "restore.localhost", restoredApp.Settings.Host)
+
+	// Verify volume settings (SecretKeyBase) were preserved
+	restoredVol, err := restoredApp.Volume(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, originalSecretKeyBase, restoredVol.SecretKeyBase())
+
+	// Verify data was restored
+	restoredContainerName, err := restoredApp.ContainerName(ctx)
+	require.NoError(t, err)
+
+	execInContainer(t, ctx, restoredContainerName, []string{
+		"test", "-f", "/rails/storage/restore-test.txt",
+	})
+
+	// Verify that the app and volume are properly labelled by restoring the namespace
+	ns3, err := docker.RestoreNamespace(ctx, "amar-restore-dst")
+	require.NoError(t, err)
+
+	restoredAppFromState := ns3.Application("restoreapp")
+	require.NotNil(t, restoredAppFromState, "app should be discoverable after restore")
+	assert.Equal(t, imageName, restoredAppFromState.Settings.Image)
+	assert.Equal(t, "restore.localhost", restoredAppFromState.Settings.Host)
+
+	volFromState, err := restoredAppFromState.Volume(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, originalSecretKeyBase, volFromState.SecretKeyBase(), "volume SecretKeyBase should be preserved")
+}
+
+func TestRestoreExistingAppFails(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	ns, err := docker.NewNamespace("amar-restore-exists-test")
+	require.NoError(t, err)
+	defer ns.Teardown(ctx, true)
+
+	require.NoError(t, ns.EnsureNetwork(ctx))
+	require.NoError(t, ns.Proxy().Boot(ctx, getProxyPorts(t)))
+
+	imageName := "ghcr.io/basecamp/once-campfire:main"
+	app := ns.AddApplication(docker.ApplicationSettings{
+		Name:  "existingapp",
+		Image: imageName,
+	})
+	require.NoError(t, app.Deploy(ctx, nil))
+
+	var backupBuf bytes.Buffer
+	require.NoError(t, app.Backup(ctx, &backupBuf))
+
+	// Try to restore in the same namespace where the app already exists
+	_, err = ns.Restore(ctx, &backupBuf)
+	assert.ErrorIs(t, err, docker.ErrApplicationExists)
+}
+
 // Helpers
 
 func getFreePort(t *testing.T) int {
@@ -332,3 +486,57 @@ func countContainers(t *testing.T, ctx context.Context, prefix string) int {
 	}
 	return count
 }
+
+func execInContainer(t *testing.T, ctx context.Context, containerName string, cmd []string) {
+	t.Helper()
+
+	c, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	require.NoError(t, err)
+	defer c.Close()
+
+	execResp, err := c.ContainerExecCreate(ctx, containerName, container.ExecOptions{
+		Cmd:          cmd,
+		AttachStdout: true,
+		AttachStderr: true,
+	})
+	require.NoError(t, err)
+
+	resp, err := c.ContainerExecAttach(ctx, execResp.ID, container.ExecStartOptions{})
+	require.NoError(t, err)
+	defer resp.Close()
+
+	_, err = io.Copy(io.Discard, resp.Reader)
+	require.NoError(t, err)
+
+	inspect, err := c.ContainerExecInspect(ctx, execResp.ID)
+	require.NoError(t, err)
+	require.Equal(t, 0, inspect.ExitCode, "exec command failed")
+}
+
+func extractTarGz(t *testing.T, r io.Reader) map[string][]byte {
+	t.Helper()
+
+	gr, err := gzip.NewReader(r)
+	require.NoError(t, err)
+	defer gr.Close()
+
+	tr := tar.NewReader(gr)
+	entries := make(map[string][]byte)
+
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		require.NoError(t, err)
+
+		if header.Typeflag == tar.TypeReg {
+			data, err := io.ReadAll(tr)
+			require.NoError(t, err)
+			entries[header.Name] = data
+		}
+	}
+
+	return entries
+}
+

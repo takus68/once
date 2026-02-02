@@ -79,7 +79,13 @@ func FindOrCreateVolume(ctx context.Context, ns *Namespace, name string) (*Appli
 
 	settings := ApplicationVolumeSettings{SecretKeyBase: skb}
 
-	_, err = ns.client.VolumeCreate(ctx, volume.CreateOptions{
+	return CreateVolume(ctx, ns, name, settings)
+}
+
+func CreateVolume(ctx context.Context, ns *Namespace, name string, settings ApplicationVolumeSettings) (*ApplicationVolume, error) {
+	volumeName := fmt.Sprintf("%s-app-%s", ns.name, name)
+
+	_, err := ns.client.VolumeCreate(ctx, volume.CreateOptions{
 		Name: volumeName,
 		Labels: map[string]string{
 			"amar": settings.Marshal(),
