@@ -74,6 +74,40 @@ func TestContainerResourcesMarshalRoundTrip(t *testing.T) {
 	assert.True(t, original.Equal(restored))
 }
 
+func TestAutoUpdateEqualDiffers(t *testing.T) {
+	base := ApplicationSettings{Name: "app", AutoUpdate: false}
+	different := ApplicationSettings{Name: "app", AutoUpdate: true}
+	assert.False(t, base.Equal(different))
+}
+
+func TestBackupSettingsEqualDiffers(t *testing.T) {
+	base := ApplicationSettings{Name: "app", Backup: BackupSettings{Path: "/backups", AutoBack: true}}
+
+	differentPath := ApplicationSettings{Name: "app", Backup: BackupSettings{Path: "/other", AutoBack: true}}
+	assert.False(t, base.Equal(differentPath))
+
+	differentAutoBack := ApplicationSettings{Name: "app", Backup: BackupSettings{Path: "/backups", AutoBack: false}}
+	assert.False(t, base.Equal(differentAutoBack))
+
+	noBackup := ApplicationSettings{Name: "app"}
+	assert.False(t, base.Equal(noBackup))
+}
+
+func TestAutoUpdateAndBackupMarshalRoundTrip(t *testing.T) {
+	original := ApplicationSettings{
+		Name:       "app",
+		Image:      "img:latest",
+		AutoUpdate: true,
+		Backup:     BackupSettings{Path: "/backups", AutoBack: true},
+	}
+	restored, err := UnmarshalApplicationSettings(original.Marshal())
+	require.NoError(t, err)
+	assert.True(t, restored.AutoUpdate)
+	assert.Equal(t, "/backups", restored.Backup.Path)
+	assert.True(t, restored.Backup.AutoBack)
+	assert.True(t, original.Equal(restored))
+}
+
 func TestVerifyHTTP_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

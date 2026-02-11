@@ -54,6 +54,8 @@ const (
 	SettingsSectionEmail
 	SettingsSectionEnvironment
 	SettingsSectionResources
+	SettingsSectionUpdates
+	SettingsSectionBackups
 )
 
 type App struct {

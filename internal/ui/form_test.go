@@ -131,7 +131,7 @@ func TestCheckboxField_Toggle(t *testing.T) {
 
 func TestCheckboxField_View(t *testing.T) {
 	field := NewCheckboxField("TLS", true)
-	assert.Equal(t, "[x] TLS", field.View())
+	assert.Equal(t, "[✓] TLS", field.View())
 
 	field.Update(tea.KeyPressMsg{Code: tea.KeySpace})
 	assert.Equal(t, "[ ] TLS", field.View())
@@ -151,7 +151,7 @@ func TestCheckboxField_DisabledWhen(t *testing.T) {
 	disabled = false
 	field.Update(tea.KeyPressMsg{Code: tea.KeySpace})
 	assert.True(t, field.Checked(), "toggle works when enabled")
-	assert.Equal(t, "[x] TLS", field.View())
+	assert.Equal(t, "[✓] TLS", field.View())
 }
 
 func TestForm_FieldValuesAccessible(t *testing.T) {

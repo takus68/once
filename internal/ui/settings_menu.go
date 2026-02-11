@@ -45,6 +45,8 @@ func NewSettingsMenu(app *docker.Application) SettingsMenu {
 			MenuItem{Label: "Email", Key: int(SettingsSectionEmail), Shortcut: key.NewBinding(key.WithKeys("e"))},
 			MenuItem{Label: "Environment", Key: int(SettingsSectionEnvironment), Shortcut: key.NewBinding(key.WithKeys("v"))},
 			MenuItem{Label: "Resources", Key: int(SettingsSectionResources), Shortcut: key.NewBinding(key.WithKeys("r"))},
+			MenuItem{Label: "Updates", Key: int(SettingsSectionUpdates), Shortcut: key.NewBinding(key.WithKeys("u"))},
+			MenuItem{Label: "Backups", Key: int(SettingsSectionBackups), Shortcut: key.NewBinding(key.WithKeys("b"))},
 		),
 		help: NewHelp(),
 	}

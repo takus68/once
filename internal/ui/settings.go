@@ -6,6 +6,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	zone "github.com/lrstanley/bubblezone/v2"
 
 	"github.com/basecamp/once/internal/docker"
 )
@@ -44,21 +45,34 @@ type settingsState int
 const (
 	settingsStateForm settingsState = iota
 	settingsStateDeploying
+	settingsStateRunningAction
+	settingsStateActionComplete
 )
 
 type Settings struct {
-	namespace     *docker.Namespace
-	app           *docker.Application
-	width, height int
-	help          Help
-	state         settingsState
-	section       SettingsSection
-	sectionType   SettingsSectionType
-	progress      ProgressBusy
+	namespace            *docker.Namespace
+	app                  *docker.Application
+	width, height        int
+	help                 Help
+	state                settingsState
+	section              SettingsSection
+	sectionType          SettingsSectionType
+	progress             ProgressBusy
+	err                  error
+	actionSuccessMessage string
 }
 
 type settingsDeployFinishedMsg struct {
 	err error
+}
+
+type settingsActionFinishedMsg struct {
+	err error
+}
+
+type settingsRunActionMsg struct {
+	action         func() error
+	successMessage string
 }
 
 func NewSettings(ns *docker.Namespace, app *docker.Application, sectionType SettingsSectionType) Settings {
@@ -72,6 +86,10 @@ func NewSettings(ns *docker.Namespace, app *docker.Application, sectionType Sett
 		section = NewSettingsFormEnvironment(app.Settings)
 	case SettingsSectionResources:
 		section = NewSettingsFormResources(app.Settings)
+	case SettingsSectionUpdates:
+		section = NewSettingsFormUpdates(app)
+	case SettingsSectionBackups:
+		section = NewSettingsFormBackups(app)
 	}
 
 	return Settings{
@@ -99,7 +117,7 @@ func (m Settings) Update(msg tea.Msg) (Component, tea.Cmd) {
 		if m.state == settingsStateForm {
 			m.section, _ = m.section.Update(msg)
 		}
-		if m.state == settingsStateDeploying {
+		if m.state == settingsStateDeploying || m.state == settingsStateRunningAction {
 			cmds = append(cmds, m.progress.Init())
 		}
 
@@ -109,10 +127,28 @@ func (m Settings) Update(msg tea.Msg) (Component, tea.Cmd) {
 				return m, cmd
 			}
 		}
+		if m.state == settingsStateActionComplete {
+			if msg.Button == tea.MouseLeft {
+				if zi := zone.Get(m.doneButtonZoneID()); zi != nil && zi.InBounds(msg) {
+					return m, func() tea.Msg { return navigateToDashboardMsg{} }
+				}
+			}
+		}
 
 	case tea.KeyMsg:
-		if m.state == settingsStateForm && key.Matches(msg, settingsKeys.Back) {
-			return m, func() tea.Msg { return navigateToDashboardMsg{} }
+		if m.state == settingsStateActionComplete {
+			if key.Matches(msg, key.NewBinding(key.WithKeys("enter"))) {
+				return m, func() tea.Msg { return navigateToDashboardMsg{} }
+			}
+			return m, nil
+		}
+		if m.state == settingsStateForm {
+			if m.err != nil {
+				m.err = nil
+			}
+			if key.Matches(msg, settingsKeys.Back) {
+				return m, func() tea.Msg { return navigateToDashboardMsg{} }
+			}
 		}
 
 	case SettingsSectionCancelMsg:
@@ -127,11 +163,31 @@ func (m Settings) Update(msg tea.Msg) (Component, tea.Cmd) {
 		m.progress = NewProgressBusy(m.width, Colors.Border)
 		return m, tea.Batch(m.progress.Init(), m.runDeploy())
 
+	case settingsRunActionMsg:
+		m.state = settingsStateRunningAction
+		m.actionSuccessMessage = msg.successMessage
+		m.progress = NewProgressBusy(m.width, Colors.Border)
+		return m, tea.Batch(m.progress.Init(), func() tea.Msg {
+			return settingsActionFinishedMsg{err: msg.action()}
+		})
+
 	case settingsDeployFinishedMsg:
 		return m, func() tea.Msg { return navigateToAppMsg{app: m.app} }
 
+	case settingsActionFinishedMsg:
+		if msg.err != nil {
+			m.state = settingsStateForm
+			m.err = msg.err
+			return m, nil
+		}
+		if m.actionSuccessMessage != "" {
+			m.state = settingsStateActionComplete
+			return m, nil
+		}
+		return m, func() tea.Msg { return navigateToAppMsg{app: m.app} }
+
 	case progressBusyTickMsg:
-		if m.state == settingsStateDeploying {
+		if m.state == settingsStateDeploying || m.state == settingsStateRunningAction {
 			var cmd tea.Cmd
 			m.progress, cmd = m.progress.Update(msg)
 			cmds = append(cmds, cmd)
@@ -152,9 +208,16 @@ func (m Settings) View() string {
 	titleBox := Styles.TitleBox(m.width, m.app.Settings.URL(), subtitle)
 
 	var contentView string
-	if m.state == settingsStateForm {
-		contentView = m.section.View()
-	} else {
+	switch m.state {
+	case settingsStateForm:
+		var errorLine string
+		if m.err != nil {
+			errorLine = lipgloss.NewStyle().Foreground(Colors.Error).Render("Error: " + m.err.Error())
+		}
+		contentView = lipgloss.JoinVertical(lipgloss.Center, errorLine, "", m.section.View())
+	case settingsStateActionComplete:
+		contentView = m.renderActionComplete()
+	default:
 		contentView = m.progress.View()
 	}
 
@@ -180,6 +243,21 @@ func (m Settings) View() string {
 }
 
 // Private
+
+func (m Settings) renderActionComplete() string {
+	statusLine := Styles.CenteredLine(m.width, m.actionSuccessMessage)
+
+	buttonStyle := Styles.Button.BorderForeground(Colors.Focused)
+	buttonView := lipgloss.NewStyle().
+		Width(m.width).
+		Align(lipgloss.Center).
+		MarginTop(1).
+		Render(zone.Mark(m.doneButtonZoneID(), buttonStyle.Render("Done")))
+
+	return lipgloss.JoinVertical(lipgloss.Left, statusLine, buttonView)
+}
+
+func (m Settings) doneButtonZoneID() string { return "settings_done_button" }
 
 func (m Settings) runDeploy() tea.Cmd {
 	return func() tea.Msg {

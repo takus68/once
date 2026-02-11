@@ -24,8 +24,9 @@ import (
 )
 
 var (
-	ErrApplicationExists    = errors.New("application already exists")
-	ErrInvalidBackup        = errors.New("invalid backup archive")
+	ErrApplicationExists  = errors.New("application already exists")
+	ErrInvalidBackup      = errors.New("invalid backup archive")
+	ErrBackupPathRelative = errors.New("backup path must be absolute")
 	ErrSetupFailed        = errors.New("setup failed")
 	ErrPullFailed         = errors.New("pull failed")
 	ErrDeployFailed       = errors.New("deploy failed")
@@ -60,6 +61,11 @@ type ContainerResources struct {
 	MemoryMB int `json:"mem,omitempty"`
 }
 
+type BackupSettings struct {
+	Path     string `json:"p,omitempty"`
+	AutoBack bool   `json:"a,omitempty"`
+}
+
 type ApplicationSettings struct {
 	Name       string             `json:"n"`
 	Image      string             `json:"i"`
@@ -67,7 +73,9 @@ type ApplicationSettings struct {
 	DisableTLS bool               `json:"dt"`
 	EnvVars    map[string]string  `json:"env"`
 	SMTP       SMTPSettings       `json:"sm"`
-	Resources  ContainerResources  `json:"res"`
+	Resources  ContainerResources `json:"res"`
+	AutoUpdate bool               `json:"au,omitempty"`
+	Backup     BackupSettings     `json:"bk,omitempty"`
 }
 
 func UnmarshalApplicationSettings(s string) (ApplicationSettings, error) {
@@ -103,6 +111,12 @@ func (s ApplicationSettings) Equal(other ApplicationSettings) bool {
 		return false
 	}
 	if s.SMTP != other.SMTP {
+		return false
+	}
+	if s.AutoUpdate != other.AutoUpdate {
+		return false
+	}
+	if s.Backup != other.Backup {
 		return false
 	}
 	if len(s.EnvVars) != len(other.EnvVars) {

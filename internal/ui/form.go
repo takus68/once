@@ -107,15 +107,19 @@ func (f *CheckboxField) SetDisabledWhen(fn func() (disabled bool, text string)) 
 	f.disabledFn = fn
 }
 
+func (f *CheckboxField) Toggle() {
+	if f.disabledFn != nil {
+		if disabled, _ := f.disabledFn(); disabled {
+			return
+		}
+	}
+	f.checked = !f.checked
+}
+
 func (f *CheckboxField) Update(msg tea.Msg) tea.Cmd {
 	if msg, ok := msg.(tea.KeyMsg); ok {
 		if key.Matches(msg, key.NewBinding(key.WithKeys("space"))) {
-			if f.disabledFn != nil {
-				if disabled, _ := f.disabledFn(); disabled {
-					return nil
-				}
-			}
-			f.checked = !f.checked
+			f.Toggle()
 		}
 	}
 	return nil
@@ -129,7 +133,7 @@ func (f *CheckboxField) View() string {
 	}
 
 	if f.checked {
-		return "[x] " + f.label
+		return "[✓] " + f.label
 	}
 	return "[ ] " + f.label
 }
@@ -137,6 +141,13 @@ func (f *CheckboxField) View() string {
 func (f *CheckboxField) Focus() tea.Cmd { return nil }
 func (f *CheckboxField) Blur()          {}
 func (f *CheckboxField) SetWidth(int)   {}
+
+// FormActionButton
+
+type FormActionButton struct {
+	Label   string
+	OnPress func() tea.Msg
+}
 
 // Form
 
@@ -154,11 +165,12 @@ type FormItem struct {
 }
 
 type Form struct {
-	items       []FormItem
-	submitLabel string
-	focused     int
-	width       int
-	prefix      string
+	items        []FormItem
+	submitLabel  string
+	actionButton *FormActionButton
+	focused      int
+	width        int
+	prefix       string
 }
 
 func NewForm(submitLabel string, items ...FormItem) Form {
@@ -227,14 +239,29 @@ func (f Form) View() string {
 	submitButton := zone.Mark(f.submitZoneID(),
 		Styles.Focus(Styles.ButtonPrimary, f.focused == f.submitIndex()).
 			Render(f.submitLabel))
+
+	buttonParts := []string{submitButton}
+
+	if f.actionButton != nil {
+		actionBtn := zone.Mark(f.actionZoneID(),
+			Styles.Focus(Styles.Button, f.focused == f.actionIndex()).
+				Render(f.actionButton.Label))
+		buttonParts = append(buttonParts, actionBtn)
+	}
+
 	cancelButton := zone.Mark(f.cancelZoneID(),
 		Styles.Focus(Styles.Button, f.focused == f.cancelIndex()).
 			Render("Cancel"))
 
-	buttons := lipgloss.JoinHorizontal(lipgloss.Center, submitButton, cancelButton)
+	buttonParts = append(buttonParts, cancelButton)
+	buttons := lipgloss.JoinHorizontal(lipgloss.Center, buttonParts...)
 	parts = append(parts, "", buttons)
 
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+}
+
+func (f *Form) SetActionButton(label string, onPress func() tea.Msg) {
+	f.actionButton = &FormActionButton{Label: label, OnPress: onPress}
 }
 
 func (f Form) Focused() int {
@@ -286,6 +313,8 @@ func (f Form) handleEnter() (Form, FormAction, tea.Cmd) {
 	case f.focused < len(f.items):
 		form, cmd := f.focusNext()
 		return form, FormNoAction, cmd
+	case f.actionButton != nil && f.focused == f.actionIndex():
+		return f, FormNoAction, func() tea.Msg { return f.actionButton.OnPress() }
 	case f.focused == f.submitIndex():
 		return f, FormSubmitted, nil
 	case f.focused == f.cancelIndex():
@@ -297,8 +326,17 @@ func (f Form) handleEnter() (Form, FormAction, tea.Cmd) {
 func (f Form) handleMouseClick(msg tea.MouseClickMsg) (Form, FormAction, tea.Cmd) {
 	for i := range f.items {
 		if zi := zone.Get(f.fieldZoneID(i)); zi != nil && zi.InBounds(msg) {
-			form, cmd := f.focusIndex(i)
-			return form, FormNoAction, cmd
+			form, focusCmd := f.focusIndex(i)
+			if cb, ok := f.items[i].Field.(*CheckboxField); ok {
+				cb.Toggle()
+			}
+			return form, FormNoAction, focusCmd
+		}
+	}
+
+	if f.actionButton != nil {
+		if zi := zone.Get(f.actionZoneID()); zi != nil && zi.InBounds(msg) {
+			return f, FormNoAction, func() tea.Msg { return f.actionButton.OnPress() }
 		}
 	}
 
@@ -327,9 +365,21 @@ func (f Form) fieldZoneID(i int) string {
 	return f.zoneID(fmt.Sprintf("field_%d", i))
 }
 
+func (f Form) actionZoneID() string { return f.zoneID("action") }
 func (f Form) submitZoneID() string { return f.zoneID("submit") }
 func (f Form) cancelZoneID() string { return f.zoneID("cancel") }
 
 func (f Form) submitIndex() int { return len(f.items) }
-func (f Form) cancelIndex() int { return len(f.items) + 1 }
-func (f Form) totalCount() int  { return len(f.items) + 2 }
+
+func (f Form) actionIndex() int { return len(f.items) + 1 }
+
+func (f Form) cancelIndex() int {
+	if f.actionButton != nil {
+		return len(f.items) + 2
+	}
+	return len(f.items) + 1
+}
+
+func (f Form) totalCount() int {
+	return f.cancelIndex() + 1
+}

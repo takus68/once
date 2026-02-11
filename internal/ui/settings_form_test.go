@@ -1,7 +1,10 @@
 package ui
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/assert"
@@ -94,14 +97,14 @@ func TestSettingsFormApplication_SpaceDoesNotToggleTLSForLocalhost(t *testing.T)
 
 func TestSettingsFormApplication_TLSShowsDisabledForLocalhost(t *testing.T) {
 	form := NewSettingsFormApplication(docker.ApplicationSettings{Host: "app.example.com"})
-	assert.Equal(t, "[x] Enabled", form.form.CheckboxField(appTLSField).View())
+	assert.Equal(t, "[✓] Enabled", form.form.CheckboxField(appTLSField).View())
 
 	form = applicationPressTab(form)
 	form = applicationTypeText(form, ".localhost")
 	assert.Equal(t, "Not available for localhost", form.form.CheckboxField(appTLSField).View())
 
 	form = applicationClearAndType(form, "app.example.com")
-	assert.Equal(t, "[x] Enabled", form.form.CheckboxField(appTLSField).View())
+	assert.Equal(t, "[✓] Enabled", form.form.CheckboxField(appTLSField).View())
 }
 
 func TestSettingsFormApplication_Submit(t *testing.T) {
@@ -310,6 +313,108 @@ func TestSettingsFormResources_Cancel(t *testing.T) {
 	assert.True(t, ok, "expected SettingsSectionCancelMsg, got %T", msg)
 }
 
+func TestBackupFileName(t *testing.T) {
+	ts := time.Date(2026, 2, 1, 14, 0, 0, 0, time.UTC)
+	assert.Equal(t, "chat-20260201-140000.tar.gz", backupFileName("chat", ts))
+
+	ts2 := time.Date(2025, 12, 25, 9, 5, 30, 0, time.UTC)
+	assert.Equal(t, "myapp-20251225-090530.tar.gz", backupFileName("myapp", ts2))
+}
+
+func TestCreateBackupFile_EmptyPath(t *testing.T) {
+	_, err := createBackupFile("", "chat")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "backup location is required")
+}
+
+func TestCreateBackupFile_RelativePath(t *testing.T) {
+	_, err := createBackupFile("relative/path", "chat")
+	require.ErrorIs(t, err, docker.ErrBackupPathRelative)
+}
+
+func TestCreateBackupFile_CreatesDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "nested", "backup", "dir")
+
+	f, err := createBackupFile(dir, "chat")
+	require.NoError(t, err)
+	f.Close()
+
+	info, err := os.Stat(dir)
+	require.NoError(t, err)
+	assert.True(t, info.IsDir())
+}
+
+func TestCreateBackupFile_NamesFileCorrectly(t *testing.T) {
+	dir := t.TempDir()
+
+	f, err := createBackupFile(dir, "chat")
+	require.NoError(t, err)
+	f.Close()
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Regexp(t, `^chat-\d{8}-\d{6}\.tar\.gz$`, entries[0].Name())
+}
+
+func TestSettingsFormBackups_ActionReadsCurrentFieldValue(t *testing.T) {
+	app := &docker.Application{
+		Settings: docker.ApplicationSettings{
+			Name:   "chat",
+			Backup: docker.BackupSettings{Path: "/old/path"},
+		},
+	}
+	form := NewSettingsFormBackups(app)
+
+	assert.Equal(t, "/old/path", form.form.TextField(backupsPathField).Value())
+
+	// Type a new path into the field
+	form.form.TextField(backupsPathField).SetValue("/new/path")
+
+	// Tab to Done, then to the action button, then press enter
+	form = backupsPressTab(form)
+	form = backupsPressTab(form)
+	form = backupsPressTab(form)
+	assert.Equal(t, form.form.actionIndex(), form.form.Focused(), "action button focused")
+
+	_, cmd := form.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	require.NotNil(t, cmd)
+	msg := cmd()
+	actionMsg, ok := msg.(settingsRunActionMsg)
+	require.True(t, ok, "expected settingsRunActionMsg, got %T", msg)
+
+	// Run the action — it will fail (no Docker) but should use the new path
+	err := actionMsg.action()
+	require.Error(t, err)
+	// The error should NOT be "backup location is required", proving it read "/new/path"
+	assert.NotContains(t, err.Error(), "backup location is required")
+}
+
+func TestSettingsFormBackups_Submit(t *testing.T) {
+	app := &docker.Application{
+		Settings: docker.ApplicationSettings{Name: "chat"},
+	}
+	form := NewSettingsFormBackups(app)
+
+	// Type a path
+	form = backupsTypeText(form, "/my/backups")
+	form = backupsPressTab(form)
+
+	// Toggle auto-backup
+	form = backupsPressSpace(form)
+
+	// Tab to Done
+	form = backupsPressTab(form)
+
+	_, cmd := form.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	require.NotNil(t, cmd)
+	msg := cmd()
+	submitMsg, ok := msg.(SettingsSectionSubmitMsg)
+	require.True(t, ok, "expected SettingsSectionSubmitMsg, got %T", msg)
+	assert.Equal(t, "/my/backups", submitMsg.Settings.Backup.Path)
+	assert.True(t, submitMsg.Settings.Backup.AutoBack)
+}
+
 // Helpers
 
 func applicationTypeText(form SettingsFormApplication, text string) SettingsFormApplication {
@@ -354,6 +459,24 @@ func resourcesTypeText(form SettingsFormResources, text string) SettingsFormReso
 	for _, r := range text {
 		section, _ := form.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 		form = section.(SettingsFormResources)
+	}
+	return form
+}
+
+func backupsPressTab(form SettingsFormBackups) SettingsFormBackups {
+	section, _ := form.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	return section.(SettingsFormBackups)
+}
+
+func backupsPressSpace(form SettingsFormBackups) SettingsFormBackups {
+	section, _ := form.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	return section.(SettingsFormBackups)
+}
+
+func backupsTypeText(form SettingsFormBackups, text string) SettingsFormBackups {
+	for _, r := range text {
+		section, _ := form.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+		form = section.(SettingsFormBackups)
 	}
 	return form
 }
