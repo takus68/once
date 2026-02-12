@@ -2,8 +2,6 @@ package docker
 
 import "time"
 
-const AutomaticTaskInterval = 24 * time.Hour
-
 type State struct {
 	Apps map[string]*AppState `json:"apps"`
 }

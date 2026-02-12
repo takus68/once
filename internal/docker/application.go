@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/distribution/reference"
@@ -35,7 +36,11 @@ var (
 	ErrVerificationFailed = errors.New("verification failed")
 )
 
-const BackupDataDir = "data"
+const (
+	BackupDataDir         = "data"
+	BackupRetention       = 30 * 24 * time.Hour
+	AutomaticTaskInterval = 24 * time.Hour
+)
 
 // AppVolumeMountTargets defines the paths where the app data volume is mounted
 // inside the container. The first entry is the primary path used for backups.
@@ -296,15 +301,21 @@ func (a *Application) BackupName() string {
 }
 
 func (a *Application) BackupToFile(ctx context.Context, dir string, name string) error {
-	if err := prepareBackupDir(dir); err != nil {
+	uid, gid, err := prepareBackupDir(dir)
+	if err != nil {
 		return err
 	}
 
-	file, err := os.Create(filepath.Join(dir, name))
+	filePath := filepath.Join(dir, name)
+	file, err := os.Create(filePath)
 	if err != nil {
 		return fmt.Errorf("creating backup file: %w", err)
 	}
 	defer file.Close()
+
+	if err := os.Chown(filePath, uid, gid); err != nil {
+		return fmt.Errorf("setting backup file ownership: %w", err)
+	}
 
 	backupErr := a.backupToWriter(ctx, file)
 	a.saveOperationResult(ctx, func(s *State) { s.RecordBackup(a.Settings.Name, backupErr) })
@@ -334,6 +345,39 @@ func (a *Application) VerifyHTTP(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (a *Application) TrimBackups() error {
+	if a.Settings.Backup.Path == "" {
+		return nil
+	}
+
+	entries, err := os.ReadDir(a.Settings.Backup.Path)
+	if err != nil {
+		return fmt.Errorf("reading backup directory: %w", err)
+	}
+
+	var errs []error
+	cutoff := time.Now().Add(-BackupRetention)
+
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() {
+			continue
+		}
+
+		t, ok := parseBackupTime(a.Settings.Name, entry.Name())
+		if !ok {
+			continue
+		}
+
+		if t.Before(cutoff) {
+			if err := os.Remove(filepath.Join(a.Settings.Backup.Path, entry.Name())); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+
+	return errors.Join(errs...)
 }
 
 func (a *Application) Remove(ctx context.Context, removeData bool) error {
@@ -680,26 +724,97 @@ func randomID(length int) (string, error) {
 	return hex.EncodeToString(bytes)[:length], nil
 }
 
-func prepareBackupDir(dir string) error {
+func prepareBackupDir(dir string) (int, int, error) {
 	if dir == "" {
-		return fmt.Errorf("backup location is required")
+		return 0, 0, fmt.Errorf("backup location is required")
 	}
 
 	if !filepath.IsAbs(dir) {
-		return ErrBackupPathRelative
+		return 0, 0, ErrBackupPathRelative
 	}
 
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("creating backup directory: %w", err)
+	uid, gid, err := findOwnership(dir)
+	if err != nil {
+		return 0, 0, fmt.Errorf("determining backup directory ownership: %w", err)
 	}
 
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return 0, 0, fmt.Errorf("creating backup directory: %w", err)
+	}
+
+	if err := chownNewDirs(dir, uid, gid); err != nil {
+		return 0, 0, fmt.Errorf("setting backup directory ownership: %w", err)
+	}
+
+	return uid, gid, nil
+}
+
+func findOwnership(dir string) (int, int, error) {
+	for path := dir; ; path = filepath.Dir(path) {
+		info, err := os.Stat(path)
+		if err == nil {
+			stat := info.Sys().(*syscall.Stat_t)
+			return int(stat.Uid), int(stat.Gid), nil
+		}
+		if !os.IsNotExist(err) {
+			return 0, 0, err
+		}
+		if path == "/" {
+			return 0, 0, fmt.Errorf("no existing parent directory found for %s", dir)
+		}
+	}
+}
+
+func chownNewDirs(dir string, uid, gid int) error {
+	// Collect dirs from deepest to shallowest, stopping at the first
+	// one that already has the correct ownership.
+	var dirs []string
+	for path := dir; ; path = filepath.Dir(path) {
+		info, err := os.Stat(path)
+		if err != nil {
+			break
+		}
+		stat := info.Sys().(*syscall.Stat_t)
+		if int(stat.Uid) == uid && int(stat.Gid) == gid {
+			break
+		}
+		dirs = append(dirs, path)
+		if path == "/" {
+			break
+		}
+	}
+
+	for _, d := range dirs {
+		if err := os.Chown(d, uid, gid); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func parseBackupTime(appName, filename string) (time.Time, bool) {
+	prefix := appName + "-"
+	suffix := ".tar.gz"
+
+	if !strings.HasPrefix(filename, prefix) || !strings.HasSuffix(filename, suffix) {
+		return time.Time{}, false
+	}
+
+	middle := strings.TrimPrefix(filename, prefix)
+	middle = strings.TrimSuffix(middle, suffix)
+
+	t, err := time.Parse("20060102-150405", middle)
+	if err != nil {
+		return time.Time{}, false
+	}
+
+	return t, true
 }
 
 func writeTarEntry(tw *tar.Writer, name string, data []byte) error {
 	header := &tar.Header{
 		Name: name,
-		Mode: 0644,
+		Mode: 0o644,
 		Size: int64(len(data)),
 	}
 	if err := tw.WriteHeader(header); err != nil {

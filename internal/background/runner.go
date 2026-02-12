@@ -106,4 +106,8 @@ func (r *Runner) checkBackup(ctx context.Context, app *docker.Application, state
 	} else {
 		r.logger.Info("Auto-backup completed", "app", app.Settings.Name)
 	}
+
+	if err := app.TrimBackups(); err != nil {
+		r.logger.Error("Backup trim failed", "app", app.Settings.Name, "error", err)
+	}
 }
