@@ -4,10 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	zone "github.com/lrstanley/bubblezone/v2"
 
 	"github.com/basecamp/once/internal/docker"
 )
@@ -19,8 +17,6 @@ const (
 	stageDownloading
 	stageStarting
 	stageVerifying
-	stageFinished
-	stageFailed
 )
 
 type installProgressMsg struct {
@@ -37,6 +33,10 @@ type InstallActivityDoneMsg struct {
 	App *docker.Application
 }
 
+type InstallActivityFailedMsg struct {
+	Err error
+}
+
 type InstallActivity struct {
 	namespace     *docker.Namespace
 	imageRef      string
@@ -46,9 +46,6 @@ type InstallActivity struct {
 	percentage    int
 	progressBar   ProgressBar
 	progressBusy  ProgressBusy
-	err           error
-	app           *docker.Application
-	focused       bool
 	progressChan  chan installProgressMsg
 	doneChan      chan installDoneMsg
 }
@@ -59,7 +56,6 @@ func NewInstallActivity(ns *docker.Namespace, imageRef, hostname string) Install
 		imageRef:     imageRef,
 		hostname:     hostname,
 		stage:        stagePreparing,
-		focused:      false,
 		progressChan: make(chan installProgressMsg, 10),
 		doneChan:     make(chan installDoneMsg, 1),
 	}
@@ -78,20 +74,6 @@ func (m InstallActivity) Update(msg tea.Msg) (InstallActivity, tea.Cmd) {
 		m.progressBar.Total = 100
 		m.progressBusy = NewProgressBusy(progressWidth, Colors.Primary)
 
-	case tea.MouseClickMsg:
-		if msg.Button == tea.MouseLeft {
-			if zi := zone.Get(m.buttonZoneID()); zi != nil && zi.InBounds(msg) {
-				return m, m.activateButtonForCurrentStage()
-			}
-		}
-
-	case tea.KeyMsg:
-		if m.stage == stageFinished || m.stage == stageFailed {
-			if key.Matches(msg, key.NewBinding(key.WithKeys("enter"))) {
-				return m, m.activateButtonForCurrentStage()
-			}
-		}
-
 	case installProgressMsg:
 		m.stage = msg.stage
 		m.percentage = msg.percentage
@@ -103,13 +85,9 @@ func (m InstallActivity) Update(msg tea.Msg) (InstallActivity, tea.Cmd) {
 
 	case installDoneMsg:
 		if msg.err != nil {
-			m.stage = stageFailed
-			m.err = msg.err
-		} else {
-			m.stage = stageFinished
-			m.app = msg.app
+			return m, func() tea.Msg { return InstallActivityFailedMsg{Err: msg.err} }
 		}
-		m.focused = true
+		return m, func() tea.Msg { return InstallActivityDoneMsg{App: msg.app} }
 
 	case progressBusyTickMsg:
 		var cmd tea.Cmd
@@ -131,10 +109,6 @@ func (m InstallActivity) View() string {
 		status = "Starting..."
 	case stageVerifying:
 		status = "Verifying..."
-	case stageFinished:
-		status = "Installation complete!"
-	case stageFailed:
-		status = "Installation failed: " + m.err.Error()
 	}
 
 	statusLine := Styles.CenteredLine(m.width, status)
@@ -147,43 +121,10 @@ func (m InstallActivity) View() string {
 		progressView = Styles.CenteredLine(m.width, m.progressBar.View())
 	}
 
-	var buttonView string
-	if m.stage == stageFinished || m.stage == stageFailed {
-		buttonStyle := Styles.Button
-
-		var label string
-		if m.stage == stageFinished {
-			label = "Done"
-		} else {
-			label = "Back"
-		}
-
-		if m.focused {
-			buttonStyle = buttonStyle.BorderForeground(Colors.Focused)
-		} else {
-			buttonStyle = buttonStyle.BorderForeground(Colors.Primary)
-		}
-
-		buttonView = lipgloss.NewStyle().
-			Width(m.width).
-			Align(lipgloss.Center).
-			MarginTop(1).
-			Render(zone.Mark(m.buttonZoneID(), buttonStyle.Render(label)))
-	}
-
-	return lipgloss.JoinVertical(lipgloss.Left, statusLine, progressView, buttonView)
+	return lipgloss.JoinVertical(lipgloss.Left, statusLine, progressView)
 }
 
 // Private
-
-func (m InstallActivity) activateButtonForCurrentStage() tea.Cmd {
-	if m.stage == stageFinished {
-		return func() tea.Msg { return InstallActivityDoneMsg{App: m.app} }
-	}
-	return func() tea.Msg { return navigateToDashboardMsg{} }
-}
-
-func (m InstallActivity) buttonZoneID() string { return "install_button" }
 
 func (m InstallActivity) startInstall() tea.Cmd {
 	return func() tea.Msg {

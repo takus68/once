@@ -38,6 +38,7 @@ type Install struct {
 	state         installState
 	form          InstallForm
 	activity      InstallActivity
+	err           error
 }
 
 func NewInstall(ns *docker.Namespace) Install {
@@ -72,8 +73,13 @@ func (m Install) Update(msg tea.Msg) (Component, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
-		if m.state == installStateForm && key.Matches(msg, installKeys.Back) {
-			return m, func() tea.Msg { return navigateToDashboardMsg{} }
+		if m.state == installStateForm {
+			if m.err != nil {
+				m.err = nil
+			}
+			if key.Matches(msg, installKeys.Back) {
+				return m, func() tea.Msg { return navigateToDashboardMsg{} }
+			}
 		}
 
 	case InstallFormCancelMsg:
@@ -84,6 +90,11 @@ func (m Install) Update(msg tea.Msg) (Component, tea.Cmd) {
 		m.activity = NewInstallActivity(m.namespace, msg.ImageRef, msg.Hostname)
 		m.activity, _ = m.activity.Update(tea.WindowSizeMsg{Width: m.width, Height: m.height})
 		return m, m.activity.Init()
+
+	case InstallActivityFailedMsg:
+		m.state = installStateForm
+		m.err = msg.Err
+		return m, nil
 
 	case InstallActivityDoneMsg:
 		return m, func() tea.Msg { return navigateToAppMsg{app: msg.App} }
@@ -103,7 +114,12 @@ func (m Install) View() string {
 
 	var contentView string
 	if m.state == installStateForm {
-		contentView = m.form.View()
+		if m.err != nil {
+			errorLine := lipgloss.NewStyle().Foreground(Colors.Error).Render("Error: " + m.err.Error())
+			contentView = lipgloss.JoinVertical(lipgloss.Center, errorLine, "", m.form.View())
+		} else {
+			contentView = m.form.View()
+		}
 	} else {
 		contentView = m.activity.View()
 	}

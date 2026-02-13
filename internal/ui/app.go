@@ -155,6 +155,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.currentScreen, _ = m.currentScreen.Update(m.lastSize)
 		return m, m.currentScreen.Init()
 	case navigateToDashboardMsg:
+		_ = m.namespace.Refresh(m.watchCtx)
 		apps := m.namespace.Applications()
 		if len(apps) > 0 && m.currentIndex < len(apps) {
 			m.currentScreen = NewDashboard(m.namespace, apps[m.currentIndex], m.scraper, m.dockerScraper)
