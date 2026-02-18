@@ -13,8 +13,11 @@ import (
 	"github.com/basecamp/once/internal/metrics"
 )
 
+const PanelHeight = 7
+const StoppedPanelHeight = 2
+
 type DashboardPanel struct {
-	app           *docker.Application
+	app           docker.Application
 	scraper       *metrics.MetricsScraper
 	dockerScraper *docker.Scraper
 	cpuChart      Chart
@@ -25,7 +28,7 @@ type DashboardPanel struct {
 
 func NewDashboardPanel(app *docker.Application, scraper *metrics.MetricsScraper, dockerScraper *docker.Scraper) DashboardPanel {
 	return DashboardPanel{
-		app:           app,
+		app:           *app,
 		scraper:       scraper,
 		dockerScraper: dockerScraper,
 		cpuChart:      NewChart("CPU", UnitPercent),
@@ -44,7 +47,7 @@ func (p DashboardPanel) View(selected bool, toggling bool, width int) string {
 	innerWidth := max(width-3, 0) // 1 indicator + 1 left pad + 1 right pad
 
 	left := Styles.Title.Render(title)
-	right := renderStateInfo(p.app, toggling)
+	right := renderStateInfo(&p.app, toggling)
 	gap := max(innerWidth-1-lipgloss.Width(left)-lipgloss.Width(right), 1)
 	titleLine := " " + left + strings.Repeat(" ", gap) + right
 
@@ -101,6 +104,10 @@ func (p DashboardPanel) View(selected bool, toggling bool, width int) string {
 }
 
 // Private
+
+func (p DashboardPanel) Height(selected bool, width int) int {
+	return lipgloss.Height(p.View(selected, false, width))
+}
 
 func (p DashboardPanel) renderTopTransition(selected bool, width int) string {
 	if !selected {

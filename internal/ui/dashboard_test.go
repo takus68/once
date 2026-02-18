@@ -46,8 +46,14 @@ func TestFormatDuration(t *testing.T) {
 
 func TestPanelIndexAtY(t *testing.T) {
 	d := testDashboard(3)
-	slotHeight := PanelHeight + 2 // transition + body + transition
-	titleHeight := 1              // title rule + blank line
+	d.width = 80
+	d.height = 40
+	d.updateViewportSize()
+	d.rebuildViewportContent()
+
+	// Get actual measured heights from panels
+	slotHeight := d.panels[0].Height(d.selectedIndex == 0, d.width)
+	titleHeight := 1
 
 	t.Run("click on first panel", func(t *testing.T) {
 		idx, ok := d.panelIndexAtY(titleHeight)
@@ -83,6 +89,7 @@ func TestPanelIndexAtY(t *testing.T) {
 		scrolled.height = 20
 		scrolled.updateViewportSize()
 		scrolled.rebuildViewportContent()
+		slotHeight := scrolled.panels[0].Height(scrolled.selectedIndex == 0, scrolled.width)
 		scrolled.viewport.SetYOffset(slotHeight)
 
 		// Y is in screen coordinates; with offset, the first visible panel is index 1
@@ -101,7 +108,7 @@ func TestDashboardMouseClickSelectsPanel(t *testing.T) {
 
 	assert.Equal(t, 0, d.selectedIndex)
 
-	slotHeight := PanelHeight + 2
+	slotHeight := d.panels[0].Height(d.selectedIndex == 0, d.width)
 	titleHeight := 1
 
 	// Click on the second panel
@@ -124,7 +131,7 @@ func TestDashboardMouseClickWithScroll(t *testing.T) {
 	d.updateViewportSize()
 	d.rebuildViewportContent()
 
-	slotHeight := PanelHeight + 2
+	slotHeight := d.panels[0].Height(d.selectedIndex == 0, d.width)
 	titleHeight := 1
 
 	// Scroll down so the second panel is at the top of the viewport
@@ -139,10 +146,16 @@ func TestDashboardMouseClickWithScroll(t *testing.T) {
 
 func TestPanelIndexAtYMixedHeights(t *testing.T) {
 	d := testDashboardMixed()
+	d.width = 80
+	d.height = 40
+	d.updateViewportSize()
+	d.rebuildViewportContent()
+
 	titleHeight := 1
 
-	runningSlot := PanelHeight + 2
-	stoppedSlot := StoppedPanelHeight + 2
+	// Get actual measured heights from panels
+	runningSlot := d.panels[0].Height(d.selectedIndex == 0, d.width) // App 0 is running
+	stoppedSlot := d.panels[1].Height(d.selectedIndex == 1, d.width) // App 1 is stopped
 
 	// App 0 is running, starts at offset 0
 	idx, ok := d.panelIndexAtY(titleHeight)
@@ -172,8 +185,10 @@ func TestDashboardMouseClickMixedHeights(t *testing.T) {
 	d.rebuildViewportContent()
 
 	titleHeight := 1
-	runningSlot := PanelHeight + 2
-	stoppedSlot := StoppedPanelHeight + 2
+
+	// Get actual measured heights from panels
+	runningSlot := d.panels[0].Height(d.selectedIndex == 0, d.width) // App 0 is running
+	stoppedSlot := d.panels[1].Height(d.selectedIndex == 1, d.width) // App 1 is stopped
 
 	// Click on stopped app (index 1)
 	msg := tea.MouseClickMsg{X: 10, Y: titleHeight + runningSlot, Button: tea.MouseLeft}

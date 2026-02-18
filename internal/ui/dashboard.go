@@ -2,19 +2,16 @@ package ui
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/basecamp/once/internal/docker"
 	"github.com/basecamp/once/internal/metrics"
 )
-
-const PanelHeight = 7
-const StoppedPanelHeight = 2
 
 type dashboardKeyMap struct {
 	Up        key.Binding
@@ -304,21 +301,20 @@ func (m *Dashboard) updateViewportSize() {
 }
 
 func (m *Dashboard) rebuildViewportContent() {
-	var sections []string
-	for i := range m.apps {
-		toggling := m.toggling && m.togglingApp == m.apps[i].Settings.Name
-		panel := m.panels[i].View(i == m.selectedIndex, toggling, m.width)
-		sections = append(sections, panel)
+	var views []string
+	for i := range m.panels {
+		toggling := m.toggling && m.togglingApp == m.panels[i].app.Settings.Name
+		views = append(views, m.panels[i].View(i == m.selectedIndex, toggling, m.width))
 	}
-	m.viewport.SetContent(strings.Join(sections, "\n"))
+	m.viewport.SetContent(lipgloss.JoinVertical(lipgloss.Left, views...))
 }
 
 func (m *Dashboard) scrollToSelection() {
 	panelTop := 0
 	for i := range m.selectedIndex {
-		panelTop += slotHeightFor(m.apps[i])
+		panelTop += m.panels[i].Height(i == m.selectedIndex, m.width)
 	}
-	panelBottom := panelTop + slotHeightFor(m.apps[m.selectedIndex])
+	panelBottom := panelTop + m.panels[m.selectedIndex].Height(true, m.width)
 	if panelTop < m.viewport.YOffset() {
 		m.viewport.SetYOffset(panelTop)
 	} else if panelBottom > m.viewport.YOffset()+m.viewport.Height() {
@@ -333,21 +329,14 @@ func (m *Dashboard) panelIndexAtY(y int) (int, bool) {
 		return 0, false
 	}
 	offset := 0
-	for i, app := range m.apps {
-		h := slotHeightFor(app)
+	for i := range m.panels {
+		h := m.panels[i].Height(i == m.selectedIndex, m.width)
 		if contentY < offset+h {
 			return i, true
 		}
 		offset += h
 	}
 	return 0, false
-}
-
-func slotHeightFor(app *docker.Application) int {
-	if app.Running {
-		return PanelHeight + 2
-	}
-	return StoppedPanelHeight + 2
 }
 
 func (m *Dashboard) buildPanels() {
