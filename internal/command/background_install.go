@@ -18,8 +18,8 @@ After=network.target docker.service
 [Service]
 Type=simple
 ExecStart=%s background run --namespace %s
-Restart=on-failure
-RestartSec=60
+Restart=always
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target

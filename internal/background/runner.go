@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/basecamp/once/internal/docker"
+	"github.com/basecamp/once/internal/version"
 )
 
 const CheckInterval = 5 * time.Minute
@@ -24,10 +25,6 @@ func NewRunner(namespace string) *Runner {
 func (r *Runner) Run(ctx context.Context) error {
 	slog.Info("Starting background runner", "namespace", r.namespace, "check_interval", CheckInterval)
 
-	if err := r.check(ctx); err != nil {
-		slog.Error("Check failed", "error", err)
-	}
-
 	ticker := time.NewTicker(CheckInterval)
 	defer ticker.Stop()
 
@@ -37,8 +34,10 @@ func (r *Runner) Run(ctx context.Context) error {
 			slog.Info("Shutting down")
 			return nil
 		case <-ticker.C:
-			if err := r.check(ctx); err != nil {
+			if updated, err := r.check(ctx); err != nil {
 				slog.Error("Check failed", "error", err)
+			} else if updated {
+				return nil
 			}
 		}
 	}
@@ -46,15 +45,19 @@ func (r *Runner) Run(ctx context.Context) error {
 
 // Private
 
-func (r *Runner) check(ctx context.Context) error {
+func (r *Runner) check(ctx context.Context) (bool, error) {
 	ns, err := docker.RestoreNamespace(ctx, r.namespace)
 	if err != nil {
-		return fmt.Errorf("restoring namespace: %w", err)
+		return false, fmt.Errorf("restoring namespace: %w", err)
 	}
 
 	state, err := ns.LoadState(ctx)
 	if err != nil {
-		return fmt.Errorf("loading state: %w", err)
+		return false, fmt.Errorf("loading state: %w", err)
+	}
+
+	if r.checkSelfUpdate(ctx, ns, state) {
+		return true, nil
 	}
 
 	for _, app := range ns.Applications() {
@@ -66,7 +69,27 @@ func (r *Runner) check(ctx context.Context) error {
 		r.checkBackup(ctx, app, state)
 	}
 
-	return nil
+	return false, nil
+}
+
+func (r *Runner) checkSelfUpdate(ctx context.Context, ns *docker.Namespace, state *docker.State) bool {
+	if !state.SelfUpdateDue() {
+		return false
+	}
+
+	slog.Info("Checking for once update")
+
+	err := version.NewUpdater().UpdateBinary()
+	state.RecordSelfUpdate(err)
+	ns.SaveState(ctx, state)
+
+	if err != nil {
+		slog.Error("Self-update failed", "error", err)
+		return false
+	}
+
+	slog.Info("Self-update complete, restarting")
+	return true
 }
 
 func (r *Runner) checkUpdate(ctx context.Context, app *docker.Application, state *docker.State) {

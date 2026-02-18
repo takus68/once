@@ -3,7 +3,8 @@ package docker
 import "time"
 
 type State struct {
-	Apps map[string]*AppState `json:"apps"`
+	Apps           map[string]*AppState `json:"apps"`
+	LastSelfUpdate OperationResult      `json:"last_self_update"`
 }
 
 type AppState struct {
@@ -43,6 +44,17 @@ func (s *State) AppState(appName string) *AppState {
 		return nil
 	}
 	return s.Apps[appName]
+}
+
+func (s *State) SelfUpdateDue() bool {
+	if s.LastSelfUpdate.At.IsZero() {
+		return true
+	}
+	return s.LastSelfUpdate.Error != "" || time.Since(s.LastSelfUpdate.At) >= AutomaticTaskInterval
+}
+
+func (s *State) RecordSelfUpdate(err error) {
+	s.LastSelfUpdate = newResult(err)
 }
 
 func (s *State) RecordBackup(appName string, err error) {
