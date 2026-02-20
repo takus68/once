@@ -460,7 +460,8 @@ func FullRedraw(buf *Buffer) string {
 	var out strings.Builder
 	style := DefaultStyle()
 
-	// Clear screen and home cursor
+	// Reset style and clear screen
+	out.WriteString(SGRReset)
 	out.WriteString(CursorHome)
 	out.WriteString(EraseScreen)
 

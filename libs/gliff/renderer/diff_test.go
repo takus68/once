@@ -173,7 +173,7 @@ func TestFullRedraw(t *testing.T) {
 
 	output := FullRedraw(buf)
 
-	assert.True(t, strings.HasPrefix(output, CursorHome+EraseScreen))
+	assert.True(t, strings.HasPrefix(output, SGRReset+CursorHome+EraseScreen))
 	assert.Contains(t, output, "Hello")
 	assert.Contains(t, output, "World")
 }
