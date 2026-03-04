@@ -2,7 +2,9 @@ package main
 
 import (
 	"embed"
+	"log"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -15,7 +17,7 @@ import (
 //go:embed templates/*
 var templateFS embed.FS
 
-type InstalScriptArgs struct {
+type InstallScriptArgs struct {
 	ImageRef string
 }
 
@@ -29,7 +31,11 @@ func withLogging(h http.HandlerFunc) http.HandlerFunc {
 		duration := time.Since(start)
 		clientIP := r.Header.Get("X-Forwarded-For")
 		if clientIP == "" {
-			clientIP = strings.Split(r.RemoteAddr, ":")[0]
+			if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+				clientIP = host
+			} else {
+				clientIP = r.RemoteAddr
+			}
 		} else {
 			clientIP = strings.Split(clientIP, ",")[0]
 			clientIP = strings.TrimSpace(clientIP)
@@ -76,7 +82,7 @@ func newInstallScriptHandler(template *template.Template) http.HandlerFunc {
 			return
 		}
 
-		args := InstalScriptArgs{
+		args := InstallScriptArgs{
 			ImageRef: imageRef,
 		}
 
@@ -101,5 +107,5 @@ func main() {
 		port = "80"
 	}
 
-	panic(http.ListenAndServe(":"+port, nil))
+	log.Fatal(http.ListenAndServe(":"+port, nil))
 }

@@ -2,7 +2,6 @@ package docker
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -198,7 +197,7 @@ func TestVerifyHTTP_Unreachable(t *testing.T) {
 
 	err := app.VerifyHTTP(context.Background())
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, ErrVerificationFailed))
+	assert.ErrorIs(t, err, ErrVerificationFailed)
 }
 
 func TestVerifyHTTP_NoHost(t *testing.T) {

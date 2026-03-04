@@ -354,6 +354,7 @@ func (a *Application) BackupToFile(ctx context.Context, dir string, name string)
 	a.saveOperationResult(ctx, func(s *State) { s.RecordBackup(a.Settings.Name, err) })
 
 	if err != nil {
+		os.Remove(filePath)
 		slog.Error("Failed to generate backup", "filename", filePath, "error", err)
 		return err
 	}
@@ -452,12 +453,14 @@ func (a *Application) Destroy(ctx context.Context, destroyVolumes bool) error {
 	}
 
 	if destroyVolumes {
-		vol, err := a.Volume(ctx)
-		if err != nil {
+		vol, err := FindVolume(ctx, a.namespace, a.Settings.Name)
+		if err != nil && !errors.Is(err, ErrVolumeNotFound) {
 			return fmt.Errorf("getting volume: %w", err)
 		}
-		if err := vol.Destroy(ctx); err != nil {
-			return err
+		if vol != nil {
+			if err := vol.Destroy(ctx); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -869,7 +872,7 @@ func copyTarEntriesWithPrefix(src io.Reader, dst *tar.Writer, oldPrefix, newPref
 	tr := tar.NewReader(src)
 	for {
 		header, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return nil
 		}
 		if err != nil {

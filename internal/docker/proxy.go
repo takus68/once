@@ -218,7 +218,7 @@ func (p *Proxy) SaveState(ctx context.Context, state *State) error {
 
 	header := &tar.Header{
 		Name: stateFileName,
-		Mode: 0644,
+		Mode: 0o644,
 		Size: int64(len(data)),
 	}
 	if err := tw.WriteHeader(header); err != nil {

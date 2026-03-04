@@ -3,6 +3,7 @@ package command
 import (
 	"context"
 	"fmt"
+	"regexp"
 
 	"github.com/spf13/cobra"
 
@@ -29,6 +30,10 @@ func NewRootCommand() *RootCommand {
 			HiddenDefaultCmd: true,
 		},
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if err := validateNamespace(r.namespace); err != nil {
+				return err
+			}
+
 			closeLogger, err := logging.SetupFile()
 			if err != nil {
 				return fmt.Errorf("setting up logging: %w", err)
@@ -69,6 +74,15 @@ func (r *RootCommand) Execute() error {
 }
 
 // Helpers
+
+var validNamespace = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+
+func validateNamespace(namespace string) error {
+	if !validNamespace.MatchString(namespace) {
+		return fmt.Errorf("invalid namespace %q: must start with a lowercase letter or digit and contain only lowercase letters, digits, and hyphens", namespace)
+	}
+	return nil
+}
 
 type NamespaceRunE func(ns *docker.Namespace, cmd *cobra.Command, args []string) error
 

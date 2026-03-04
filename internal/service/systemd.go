@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,13 +34,13 @@ func (s *Systemd) IsInstalled(name string) bool {
 func (s *Systemd) Install(ctx context.Context, name, execPath, namespace string) error {
 	path := s.unitFilePath(name)
 
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("creating systemd directory: %w", err)
 	}
 
 	unitContent := fmt.Sprintf(unitTemplate, namespace, execPath, namespace)
 
-	if err := os.WriteFile(path, []byte(unitContent), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(unitContent), 0o644); err != nil {
 		return fmt.Errorf("writing unit file: %w", err)
 	}
 
@@ -56,7 +58,7 @@ func (s *Systemd) Remove(ctx context.Context, name string) error {
 
 	path := s.unitFilePath(name)
 
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("removing unit file: %w", err)
 	}
 

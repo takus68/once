@@ -2,6 +2,7 @@ package docker
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 
 	"github.com/docker/docker/pkg/jsonmessage"
@@ -46,7 +47,7 @@ func (t *pullProgressTracker) Track(reader io.Reader) error {
 	for {
 		var msg jsonmessage.JSONMessage
 		if err := decoder.Decode(&msg); err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			return err

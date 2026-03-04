@@ -17,8 +17,7 @@ var removeKeys = struct {
 }
 
 type removeFinishedMsg struct {
-	appName string
-	err     error
+	err error
 }
 
 type Remove struct {
@@ -150,6 +149,6 @@ func (m Remove) View() string {
 func (m Remove) runRemove() tea.Cmd {
 	return func() tea.Msg {
 		err := m.app.Remove(context.Background(), true)
-		return removeFinishedMsg{appName: m.app.Settings.Name, err: err}
+		return removeFinishedMsg{err: err}
 	}
 }

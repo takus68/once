@@ -51,6 +51,10 @@ func (d *DeployCommand) run(ns *docker.Namespace, cmd *cobra.Command, args []str
 		host = baseName + ".localhost"
 	}
 
+	if ns.HostInUse(host) {
+		return docker.ErrHostnameInUse
+	}
+
 	app := ns.AddApplication(docker.ApplicationSettings{
 		Name:       name,
 		Image:      imageRef,

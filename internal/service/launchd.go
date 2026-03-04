@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -45,7 +47,7 @@ func (l *Launchd) Install(ctx context.Context, name, execPath, namespace string)
 
 	plistContent := fmt.Sprintf(plistTemplate, label, execPath, namespace)
 
-	if err := os.WriteFile(path, []byte(plistContent), 0644); err != nil {
+	if err := os.WriteFile(path, []byte(plistContent), 0o644); err != nil {
 		return fmt.Errorf("writing plist file: %w", err)
 	}
 
@@ -61,7 +63,7 @@ func (l *Launchd) Remove(ctx context.Context, name string) error {
 
 	path := l.plistPath(name)
 
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("removing plist file: %w", err)
 	}
 

@@ -1,6 +1,7 @@
 package version
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -90,7 +91,7 @@ type asset struct {
 }
 
 func (u *Updater) get(url string) (*http.Response, error) {
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +121,7 @@ func (u *Updater) fetchRelease() (*release, error) {
 }
 
 func (u *Updater) downloadBinary(url, dest string) error {
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("downloading binary: %w", err)
 	}
@@ -138,7 +139,7 @@ func (u *Updater) downloadBinary(url, dest string) error {
 		return fmt.Errorf("downloading binary: unexpected status %d", resp.StatusCode)
 	}
 
-	f, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+	f, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
 	if err != nil {
 		return fmt.Errorf("creating temp file: %w", err)
 	}

@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -22,9 +21,6 @@ func TestChartView(t *testing.T) {
 
 	chart := NewChart("Test", UnitCount)
 	output := chart.View(data, 40, 6, NewChartScale(UnitCount, 100))
-
-	fmt.Println("\nChart output:")
-	fmt.Println(output)
 
 	assert.NotEmpty(t, output)
 }

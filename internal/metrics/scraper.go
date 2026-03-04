@@ -119,6 +119,8 @@ func (s *MetricsScraper) Scrape(ctx context.Context) {
 	s.recordSamples(counters)
 }
 
+// Private
+
 func (s *MetricsScraper) setError(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

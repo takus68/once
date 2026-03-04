@@ -130,18 +130,18 @@ func (m *InstallActivity) View() string {
 	return lipgloss.JoinVertical(lipgloss.Left, statusLine, progressView)
 }
 
+func (m *InstallActivity) Cancel() {
+	if m.cancel != nil {
+		m.cancel()
+	}
+}
+
 // Private
 
 func (m *InstallActivity) startInstall() tea.Cmd {
 	return func() tea.Msg {
 		go m.runInstall(m.ctx)
 		return nil
-	}
-}
-
-func (m *InstallActivity) Cancel() {
-	if m.cancel != nil {
-		m.cancel()
 	}
 }
 

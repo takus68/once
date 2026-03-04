@@ -162,6 +162,10 @@ func (m Settings) Update(msg tea.Msg) (Component, tea.Cmd) {
 		if msg.Settings.Equal(m.app.Settings) {
 			return m, func() tea.Msg { return NavigateToDashboardMsg{AppName: m.app.Settings.Name} }
 		}
+		if m.namespace.HostInUseByAnother(msg.Settings.Host, m.app.Settings.Name) {
+			m.err = docker.ErrHostnameInUse
+			return m, nil
+		}
 		m.state = settingsStateDeploying
 		m.app.Settings = msg.Settings
 		m.progress = NewProgressBusy(m.width, Colors.Border)

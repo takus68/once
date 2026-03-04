@@ -67,7 +67,7 @@ func TestScraperFetch(t *testing.T) {
 	s := newTestScraper(nil)
 
 	for i := range 3 {
-		addSample(s,"myapp", Sample{
+		addSample(s, "myapp", Sample{
 			Timestamp:   time.Now(),
 			CPUPercent:  float64(i + 1),
 			MemoryBytes: uint64((i + 1) * 1000),
@@ -84,7 +84,7 @@ func TestScraperFetchWithLimit(t *testing.T) {
 	s := newTestScraper(nil)
 
 	for i := range 5 {
-		addSample(s,"myapp", Sample{CPUPercent: float64(i + 1)})
+		addSample(s, "myapp", Sample{CPUPercent: float64(i + 1)})
 	}
 
 	samples := s.Fetch("myapp", 2)
@@ -105,7 +105,7 @@ func TestScraperRingBufferWrap(t *testing.T) {
 	}
 
 	for i := range 5 {
-		addSample(s,"myapp", Sample{CPUPercent: float64(i + 1)})
+		addSample(s, "myapp", Sample{CPUPercent: float64(i + 1)})
 	}
 
 	samples := s.Fetch("myapp", 10)

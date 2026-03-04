@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -83,6 +84,15 @@ func (n *Namespace) Applications() []*Application {
 func (n *Namespace) HostInUse(host string) bool {
 	for _, app := range n.applications {
 		if app.Settings.Host == host {
+			return true
+		}
+	}
+	return false
+}
+
+func (n *Namespace) HostInUseByAnother(host string, excludeApp string) bool {
+	for _, app := range n.applications {
+		if app.Settings.Host == host && app.Settings.Name != excludeApp {
 			return true
 		}
 	}
@@ -201,6 +211,9 @@ func (n *Namespace) Restore(ctx context.Context, r io.Reader) (*Application, err
 
 	app := n.AddApplication(appSettings)
 	if err := app.Restore(ctx, volSettings, volumeData); err != nil {
+		n.applications = slices.DeleteFunc(n.applications, func(a *Application) bool {
+			return a == app
+		})
 		return nil, err
 	}
 
@@ -319,7 +332,7 @@ func (n *Namespace) parseBackup(r io.Reader) (ApplicationSettings, ApplicationVo
 
 	for {
 		header, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
