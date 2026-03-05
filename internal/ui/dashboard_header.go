@@ -143,27 +143,20 @@ func (h DashboardHeader) renderDiskGauge(width int) string {
 	sample := samples[0]
 	pct := float64(sample.DiskUsed) / float64(sample.DiskTotal) * 100
 
-	pctLine := fmt.Sprintf("  %.0f%% used of %s", pct, formatDiskSize(sample.DiskTotal))
-	detailLine := fmt.Sprintf("  %s used, %s free", formatDiskSize(sample.DiskUsed), formatDiskSize(sample.DiskFree))
-
 	barWidth := max(innerWidth-4, 0) // 2 padding + 2 margin
-	filled := int(pct / 100 * float64(barWidth))
-	filled = min(filled, barWidth)
-	empty := barWidth - filled
-	fillColor := barColor(pct)
-	filledPart := lipgloss.NewStyle().Foreground(fillColor).Render(strings.Repeat("⣿", filled))
-	emptyPart := lipgloss.NewStyle().Foreground(Colors.Border).Render(strings.Repeat("⣿", empty))
-	bar := "  " + filledPart + emptyPart
+	bar := "  " + renderBar(pct, 0, 100, barColor(pct), barWidth)
+	pctLine := formatValueLine(fmt.Sprintf("  %.0f%% used", pct), formatDiskSize(sample.DiskTotal)+" ", innerWidth)
+	detailLine := fmt.Sprintf("  %s used, %s free", formatDiskSize(sample.DiskUsed), formatDiskSize(sample.DiskFree))
 
 	lines := make([]string, contentRows)
 	for i := range lines {
 		var content string
 		switch i {
 		case 1:
-			content = padOrTruncate(pctLine, innerWidth)
-		case 2:
 			content = padOrTruncate(bar, innerWidth)
-		case 3:
+		case 2:
+			content = pctLine
+		case 4:
 			content = padOrTruncate(detailLine, innerWidth)
 		default:
 			content = strings.Repeat(" ", innerWidth)

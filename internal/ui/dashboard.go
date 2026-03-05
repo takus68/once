@@ -274,10 +274,14 @@ func (m Dashboard) View() string {
 
 	if len(m.apps) == 0 {
 		emptyMsg := lipgloss.NewStyle().Foreground(Colors.Border).Render("There are no applications installed")
-		middleHeight := m.height - 1 - m.header.Height(m.width) - 1 // title + header + help
+		headerH := m.header.Height(m.width)
+		if headerH > 0 {
+			headerH += 2
+		}
+		middleHeight := m.height - 1 - headerH - 1 // title + header + help
 		centeredContent := lipgloss.Place(m.width, middleHeight, lipgloss.Center, lipgloss.Center, emptyMsg)
 		if headerView != "" {
-			return titleLine + "\n" + headerView + "\n" + centeredContent + "\n" + helpLine
+			return titleLine + "\n\n" + headerView + "\n" + centeredContent + "\n" + helpLine
 		}
 		return titleLine + "\n" + centeredContent + "\n" + helpLine
 	}
@@ -285,7 +289,7 @@ func (m Dashboard) View() string {
 	var parts []string
 	parts = append(parts, titleLine)
 	if headerView != "" {
-		parts = append(parts, headerView, "")
+		parts = append(parts, "", headerView, "")
 	}
 	parts = append(parts, m.viewport.View())
 	if m.toggling {
@@ -333,7 +337,7 @@ func (m *Dashboard) updateViewportSize() {
 	titleHeight := 1
 	headerHeight := m.header.Height(m.width)
 	if headerHeight > 0 {
-		headerHeight++ // blank line separating header from app panels
+		headerHeight += 2 // blank lines above and below header
 	}
 	helpHeight := m.help.Height()
 	progressHeight := 0
@@ -385,7 +389,7 @@ func (m *Dashboard) panelIndexAtY(y int) (int, bool) {
 	titleHeight := 1
 	headerHeight := m.header.Height(m.width)
 	if headerHeight > 0 {
-		headerHeight++
+		headerHeight += 2
 	}
 	vpRow := y - titleHeight - headerHeight
 	if vpRow < 0 || vpRow >= m.viewport.Height() {

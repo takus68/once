@@ -308,21 +308,50 @@ func renderBar(current, peak, scaleMax float64, fillColor color.Color, width int
 	emptyStyle := lipgloss.NewStyle().Foreground(Colors.Border)
 	peakStyle := lipgloss.NewStyle().Foreground(chartGradientTop)
 
+	// Build per-character styles
+	styles := make([]lipgloss.Style, width)
 	if peak > 0 {
 		peakPos = max(peakPos, filled-1)
 		peakPos = min(peakPos, width-1)
-		fillChars := min(filled, peakPos)
-		gap := peakPos - fillChars
-		after := width - peakPos - 1
-		return filledStyle.Render(strings.Repeat("⣿", fillChars)) +
-			emptyStyle.Render(strings.Repeat("⣿", gap)) +
-			peakStyle.Render("⣿") +
-			emptyStyle.Render(strings.Repeat("⣿", max(after, 0)))
+		for i := range width {
+			switch {
+			case i == peakPos:
+				styles[i] = peakStyle
+			case i < filled:
+				styles[i] = filledStyle
+			default:
+				styles[i] = emptyStyle
+			}
+		}
+	} else {
+		for i := range width {
+			if i < filled {
+				styles[i] = filledStyle
+			} else {
+				styles[i] = emptyStyle
+			}
+		}
 	}
 
-	empty := width - filled
-	return filledStyle.Render(strings.Repeat("⣿", filled)) +
-		emptyStyle.Render(strings.Repeat("⣿", empty))
+	// Render with rounded ends
+	const barFull = "⣿"
+	const barRoundLeft = "⢾"
+	const barRoundRight = "⡷"
+
+	var b strings.Builder
+	for i, s := range styles {
+		var ch string
+		switch i {
+		case 0:
+			ch = barRoundLeft
+		case width - 1:
+			ch = barRoundRight
+		default:
+			ch = barFull
+		}
+		b.WriteString(s.Render(ch))
+	}
+	return b.String()
 }
 
 func lastValue(data []float64) float64 {

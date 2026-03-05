@@ -36,7 +36,7 @@ func TestDashboardHeader_WithDiskData(t *testing.T) {
 	h := NewDashboardHeader(s)
 
 	view := h.View(120)
-	assert.Contains(t, view, "used of")
+	assert.Contains(t, view, "% used")
 	assert.Contains(t, view, "free")
 }
 
