@@ -80,13 +80,14 @@ func (m SettingsMenu) View() string {
 
 	title := titleStyle.Render("Settings")
 
+	m.menu.SetWidth(24)
 	menuView := m.menu.View()
 
 	helpView := m.help.View()
 	menuWidth := lipgloss.Width(menuView)
 	helpLine := lipgloss.NewStyle().MarginTop(1).Width(menuWidth).Align(lipgloss.Center).Render(helpView)
 
-	content := lipgloss.JoinVertical(lipgloss.Left,
+	content := lipgloss.JoinVertical(lipgloss.Center,
 		title,
 		menuView,
 		helpLine,

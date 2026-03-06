@@ -34,9 +34,15 @@ func TestUIInstallAndManageApp(t *testing.T) {
 
 	d.send(tea.WindowSizeMsg{Width: 120, Height: 40})
 
-	// -- Install form --
+	// -- Screen 1: App list → select "Other image..." --
+	d.send(keyMsg("o"))
+
+	// -- Screen 2: Image form --
 	d.typeText("ghcr.io/basecamp/once-campfire:main")
 	d.send(keyMsg("tab"))
+	d.send(keyMsg("enter"))
+
+	// -- Screen 3: Hostname form --
 	d.typeText("chat.localhost")
 	d.send(keyMsg("tab"))
 	d.send(keyMsg("enter"))

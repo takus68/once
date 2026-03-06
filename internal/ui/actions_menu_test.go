@@ -1,9 +1,11 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/basecamp/once/internal/docker"
 	"github.com/stretchr/testify/assert"
@@ -98,6 +100,29 @@ func TestActionsMenu_KeyboardNavigation(t *testing.T) {
 	selectMsg, ok := msg.(ActionsMenuSelectMsg)
 	require.True(t, ok, "expected ActionsMenuSelectMsg, got %T", msg)
 	assert.Equal(t, ActionsMenuRemove, selectMsg.action)
+}
+
+func TestActionsMenu_TitleCentered(t *testing.T) {
+	app := &docker.Application{Running: true}
+	m := NewActionsMenu(app)
+	view := ansi.Strip(m.View())
+
+	lines := strings.Split(view, "\n")
+
+	titleOffset := -1
+	menuOffset := -1
+	for _, line := range lines {
+		if i := strings.Index(line, "Actions"); i >= 0 {
+			titleOffset = i
+		}
+		if i := strings.Index(line, "Stop"); i >= 0 && !strings.Contains(line, "Actions") {
+			menuOffset = i
+		}
+	}
+
+	require.GreaterOrEqual(t, titleOffset, 0)
+	require.GreaterOrEqual(t, menuOffset, 0)
+	assert.Greater(t, titleOffset, menuOffset)
 }
 
 // Helpers

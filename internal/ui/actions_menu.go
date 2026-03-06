@@ -88,13 +88,14 @@ func (m ActionsMenu) View() string {
 
 	title := titleStyle.Render("Actions")
 
+	m.menu.SetWidth(20)
 	menuView := m.menu.View()
 
 	helpView := m.help.View()
 	menuWidth := lipgloss.Width(menuView)
 	helpLine := lipgloss.NewStyle().MarginTop(1).Width(menuWidth).Align(lipgloss.Center).Render(helpView)
 
-	content := lipgloss.JoinVertical(lipgloss.Left,
+	content := lipgloss.JoinVertical(lipgloss.Center,
 		title,
 		menuView,
 		helpLine,

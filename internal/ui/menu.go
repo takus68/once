@@ -30,22 +30,43 @@ type MenuItem struct {
 type MenuSelectMsg struct{ Key int }
 
 type Menu struct {
-	items    []MenuItem
-	selected int
-	padWidth int
+	items        []MenuItem
+	selected     int
+	width        int
+	minWidth     int
+	hasShortcuts bool
 }
 
 func NewMenu(items ...MenuItem) Menu {
-	maxLen := 0
+	maxLabel := 0
+	maxKey := 0
+	hasShortcuts := false
 	for _, item := range items {
-		if w := lipgloss.Width(item.Label); w > maxLen {
-			maxLen = w
+		if w := lipgloss.Width(item.Label); w > maxLabel {
+			maxLabel = w
+		}
+		if len(item.Shortcut.Keys()) > 0 {
+			hasShortcuts = true
+			if w := len(item.Shortcut.Help().Key); w > maxKey {
+				maxKey = w
+			}
 		}
 	}
-	return Menu{
-		items:    items,
-		padWidth: maxLen + 2,
+
+	minWidth := maxLabel
+	if hasShortcuts {
+		minWidth = maxLabel + 2 + maxKey
 	}
+
+	return Menu{
+		items:        items,
+		minWidth:     minWidth,
+		hasShortcuts: hasShortcuts,
+	}
+}
+
+func (m *Menu) SetWidth(w int) {
+	m.width = w
 }
 
 func (m Menu) Update(msg tea.Msg) (Menu, tea.Cmd) {
@@ -91,18 +112,30 @@ func (m Menu) View() string {
 	selectedStyle := lipgloss.NewStyle().Reverse(true)
 	keyStyle := lipgloss.NewStyle().Foreground(Colors.Border)
 
+	width := m.effectiveWidth()
+
 	lines := make([]string, len(m.items))
 	for i, item := range m.items {
-		padding := strings.Repeat(" ", m.padWidth-lipgloss.Width(item.Label))
-		shortcutStr := item.Shortcut.Help().Key
-		styledKey := keyStyle.Render(shortcutStr)
-
 		var line string
 		if m.selected == i {
-			line = selectedStyle.Render(item.Label) + padding + styledKey
+			line = selectedStyle.Render(item.Label)
 		} else {
-			line = itemStyle.Render(item.Label) + padding + styledKey
+			line = itemStyle.Render(item.Label)
 		}
+
+		if width == 0 {
+			lines[i] = mouse.Mark(menuItemTarget(i), line)
+			continue
+		}
+
+		if m.hasShortcuts {
+			keyText := keyStyle.Render(item.Shortcut.Help().Key)
+			keyWidth := lipgloss.Width(keyText)
+			line = lipgloss.NewStyle().Width(width - keyWidth).Render(line) + keyText
+		} else {
+			line = lipgloss.NewStyle().Width(width).Align(lipgloss.Center).Render(line)
+		}
+
 		lines[i] = mouse.Mark(menuItemTarget(i), line)
 	}
 
@@ -110,6 +143,13 @@ func (m Menu) View() string {
 }
 
 // Private
+
+func (m Menu) effectiveWidth() int {
+	if m.width == 0 {
+		return 0
+	}
+	return max(m.width, m.minWidth)
+}
 
 func (m Menu) selectItem(key int) tea.Cmd {
 	return func() tea.Msg { return MenuSelectMsg{Key: key} }

@@ -92,6 +92,12 @@ func (n *Namespace) Applications() []*Application {
 	return n.applications
 }
 
+func (n *Namespace) RemoveApplication(app *Application) {
+	n.applications = slices.DeleteFunc(n.applications, func(a *Application) bool {
+		return a == app
+	})
+}
+
 func (n *Namespace) HostInUse(host string) bool {
 	for _, app := range n.applications {
 		if app.Settings.Host == host {
@@ -230,9 +236,7 @@ func (n *Namespace) Restore(ctx context.Context, r io.Reader) (*Application, err
 
 	app := n.AddApplication(appSettings)
 	if err := app.Restore(ctx, volSettings, volumeData); err != nil {
-		n.applications = slices.DeleteFunc(n.applications, func(a *Application) bool {
-			return a == app
-		})
+		n.RemoveApplication(app)
 		return nil, err
 	}
 

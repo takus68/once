@@ -199,6 +199,7 @@ func (m *InstallActivity) runInstall(ctx context.Context) {
 	}
 
 	if err := app.Deploy(ctx, progress); err != nil {
+		m.namespace.RemoveApplication(app)
 		m.doneChan <- installDoneMsg{err: fmt.Errorf("%w: %w", docker.ErrDeployFailed, err)}
 		return
 	}
@@ -207,6 +208,7 @@ func (m *InstallActivity) runInstall(ctx context.Context) {
 
 	if err := app.VerifyHTTP(ctx); err != nil {
 		app.Destroy(ctx, true)
+		m.namespace.RemoveApplication(app)
 		m.doneChan <- installDoneMsg{err: err}
 		return
 	}
