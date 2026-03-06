@@ -94,6 +94,8 @@ func newInstallScriptHandler(template *template.Template) http.HandlerFunc {
 }
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
+
 	template, err := template.ParseFS(templateFS, "templates/*")
 	if err != nil {
 		panic(err)
