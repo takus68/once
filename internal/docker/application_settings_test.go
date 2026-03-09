@@ -82,6 +82,49 @@ func TestBackupSettingsEqualDiffers(t *testing.T) {
 	assert.False(t, base.Equal(noBackup))
 }
 
+func TestBuildEnvWithEnvVars(t *testing.T) {
+	settings := ApplicationSettings{
+		EnvVars: map[string]string{
+			"DB_HOST": "postgres.local",
+			"DB_NAME": "mydb",
+		},
+	}
+
+	env := settings.BuildEnv("test-secret-key")
+
+	assert.Contains(t, env, "DB_HOST=postgres.local")
+	assert.Contains(t, env, "DB_NAME=mydb")
+}
+
+func TestEnvVarsMarshalRoundTrip(t *testing.T) {
+	original := ApplicationSettings{
+		Name:  "app",
+		Image: "img:latest",
+		EnvVars: map[string]string{
+			"FOO": "bar",
+			"BAZ": "qux",
+		},
+	}
+	restored, err := UnmarshalApplicationSettings(original.Marshal())
+	require.NoError(t, err)
+	assert.Equal(t, "bar", restored.EnvVars["FOO"])
+	assert.Equal(t, "qux", restored.EnvVars["BAZ"])
+	assert.True(t, original.Equal(restored))
+}
+
+func TestEnvVarsEqualDiffers(t *testing.T) {
+	base := ApplicationSettings{Name: "app", EnvVars: map[string]string{"A": "1"}}
+
+	different := ApplicationSettings{Name: "app", EnvVars: map[string]string{"A": "2"}}
+	assert.False(t, base.Equal(different))
+
+	extra := ApplicationSettings{Name: "app", EnvVars: map[string]string{"A": "1", "B": "2"}}
+	assert.False(t, base.Equal(extra))
+
+	none := ApplicationSettings{Name: "app"}
+	assert.False(t, base.Equal(none))
+}
+
 func TestAutoUpdateAndBackupMarshalRoundTrip(t *testing.T) {
 	original := ApplicationSettings{
 		Name:       "app",

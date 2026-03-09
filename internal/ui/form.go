@@ -208,6 +208,7 @@ type Form struct {
 	error        string
 	onSubmit     func(f *Form) tea.Cmd
 	onCancel     func(f *Form) tea.Cmd
+	onRebuild    func(f *Form)
 }
 
 func NewForm(submitLabel string, items ...FormItem) Form {
@@ -260,10 +261,17 @@ func (f Form) Update(msg tea.Msg) (Form, tea.Cmd) {
 	}
 
 	if f.focused < len(f.items) {
-		if _, isKey := msg.(tea.KeyPressMsg); isKey {
+		_, isKey := msg.(tea.KeyPressMsg)
+		_, isPaste := msg.(tea.PasteMsg)
+		if isKey {
 			f.clearErrorOnInput()
 		}
-		return f, f.items[f.focused].Field.Update(msg)
+		cmd := f.items[f.focused].Field.Update(msg)
+		if (isKey || isPaste) && f.onRebuild != nil {
+			f.onRebuild(&f)
+			f.focused = min(f.focused, f.totalCount()-1)
+		}
+		return f, cmd
 	}
 
 	return f, nil
@@ -323,6 +331,22 @@ func (f *Form) OnSubmit(fn func(f *Form) tea.Cmd) {
 
 func (f *Form) OnCancel(fn func(f *Form) tea.Cmd) {
 	f.onCancel = fn
+}
+
+func (f *Form) OnRebuild(fn func(f *Form)) {
+	f.onRebuild = fn
+}
+
+func (f *Form) AppendItems(items ...FormItem) {
+	inputWidth := min(f.width-4, 60)
+	for _, item := range items {
+		item.Field.SetWidth(inputWidth)
+	}
+	f.items = append(f.items, items...)
+}
+
+func (f Form) ItemCount() int {
+	return len(f.items)
 }
 
 func (f Form) Focused() int {

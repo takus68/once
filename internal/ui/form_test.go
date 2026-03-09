@@ -287,6 +287,67 @@ func TestForm_ValidationFocusesFirstError(t *testing.T) {
 	assert.Equal(t, "Second is required", form.Error())
 }
 
+func TestFormOnRebuild_CalledOnKeyPress(t *testing.T) {
+	form := NewForm("Done",
+		FormItem{Label: "Field", Field: NewTextField("val")},
+	)
+	called := false
+	form.OnRebuild(func(f *Form) { called = true })
+
+	formTypeText(&form, "x")
+	assert.True(t, called)
+}
+
+func TestFormOnRebuild_NotCalledOnTab(t *testing.T) {
+	form := NewForm("Done",
+		FormItem{Label: "First", Field: NewTextField("first")},
+		FormItem{Label: "Second", Field: NewTextField("second")},
+	)
+	called := false
+	form.OnRebuild(func(f *Form) { called = true })
+
+	formPressTab(&form)
+	assert.False(t, called)
+}
+
+func TestFormOnRebuild_NotCalledOnWindowSize(t *testing.T) {
+	form := NewForm("Done",
+		FormItem{Label: "Field", Field: NewTextField("val")},
+	)
+	called := false
+	form.OnRebuild(func(f *Form) { called = true })
+
+	form, _ = form.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
+	assert.False(t, called)
+}
+
+func TestFormAppendItems(t *testing.T) {
+	form := NewForm("Done",
+		FormItem{Label: "First", Field: NewTextField("first")},
+	)
+	assert.Equal(t, 1, form.ItemCount())
+
+	form.AppendItems(
+		FormItem{Label: "Second", Field: NewTextField("second")},
+		FormItem{Label: "Third", Field: NewTextField("third")},
+	)
+	assert.Equal(t, 3, form.ItemCount())
+	assert.Equal(t, "", form.TextField(1).Value())
+	assert.Equal(t, "", form.TextField(2).Value())
+}
+
+func TestFormAppendItems_FocusStability(t *testing.T) {
+	form := NewForm("Done",
+		FormItem{Label: "First", Field: NewTextField("first")},
+		FormItem{Label: "Second", Field: NewTextField("second")},
+	)
+	formPressTab(&form)
+	assert.Equal(t, 1, form.Focused())
+
+	form.AppendItems(FormItem{Label: "Third", Field: NewTextField("third")})
+	assert.Equal(t, 1, form.Focused(), "focus unchanged after append")
+}
+
 // Helpers
 
 func updateForm(f Form, msg tea.Msg) Form {

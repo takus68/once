@@ -439,3 +439,178 @@ func backupsTypeText(form *SettingsFormBackups, text string) {
 		updateSettingsForm(form, keyPressMsg(string(r)))
 	}
 }
+
+func TestSettingsFormEnvironment_InitialState_Empty(t *testing.T) {
+	form := NewSettingsFormEnvironment(docker.ApplicationSettings{})
+
+	assert.Equal(t, 2, form.form.ItemCount(), "one empty row = 2 items")
+	assert.Equal(t, "", form.form.TextField(0).Value())
+	assert.Equal(t, "", form.form.TextField(1).Value())
+	assert.Equal(t, 0, form.form.Focused())
+}
+
+func TestSettingsFormEnvironment_InitialState_WithVars(t *testing.T) {
+	form := NewSettingsFormEnvironment(docker.ApplicationSettings{
+		EnvVars: map[string]string{
+			"DB_HOST": "postgres.local",
+			"APP_ENV": "production",
+		},
+	})
+
+	assert.Equal(t, 6, form.form.ItemCount(), "2 populated rows + 1 empty = 6 items")
+	assert.Equal(t, "APP_ENV", form.form.TextField(0).Value(), "sorted alphabetically")
+	assert.Equal(t, "production", form.form.TextField(1).Value())
+	assert.Equal(t, "DB_HOST", form.form.TextField(2).Value())
+	assert.Equal(t, "postgres.local", form.form.TextField(3).Value())
+	assert.Equal(t, "", form.form.TextField(4).Value(), "trailing empty key")
+}
+
+func TestSettingsFormEnvironment_TabNavigation(t *testing.T) {
+	form := NewSettingsFormEnvironment(docker.ApplicationSettings{
+		EnvVars: map[string]string{"A": "1"},
+	})
+	// items: [A.key, A.val, empty.key, empty.val] + Done + Cancel
+	assert.Equal(t, 0, form.form.Focused())
+
+	environmentPressTab(&form)
+	assert.Equal(t, 1, form.form.Focused(), "A value")
+
+	environmentPressTab(&form)
+	assert.Equal(t, 2, form.form.Focused(), "empty key")
+
+	environmentPressTab(&form)
+	assert.Equal(t, 3, form.form.Focused(), "empty value")
+
+	environmentPressTab(&form)
+	assert.Equal(t, 4, form.form.Focused(), "done button")
+
+	environmentPressTab(&form)
+	assert.Equal(t, 5, form.form.Focused(), "cancel button")
+
+	environmentPressTab(&form)
+	assert.Equal(t, 0, form.form.Focused(), "wraps to first key")
+}
+
+func TestSettingsFormEnvironment_Submit_WithValues(t *testing.T) {
+	form := NewSettingsFormEnvironment(docker.ApplicationSettings{Name: "myapp"})
+
+	environmentTypeText(&form, "DB_HOST")
+	environmentPressTab(&form)
+	environmentTypeText(&form, "localhost")
+	// Auto-grow added a new row, so: key, val, empty key, empty val, done
+	environmentPressTab(&form) // new empty key
+	environmentPressTab(&form) // new empty value
+	environmentPressTab(&form) // done button
+
+	result, cmd := form.Update(keyPressMsg("enter"))
+	form = result.(SettingsFormEnvironment)
+	require.NotNil(t, cmd)
+	msg := cmd()
+	submitMsg, ok := msg.(SettingsSectionSubmitMsg)
+	require.True(t, ok, "expected SettingsSectionSubmitMsg, got %T", msg)
+	assert.Equal(t, "myapp", submitMsg.Settings.Name)
+	assert.Equal(t, map[string]string{"DB_HOST": "localhost"}, submitMsg.Settings.EnvVars)
+}
+
+func TestSettingsFormEnvironment_Submit_Empty(t *testing.T) {
+	form := NewSettingsFormEnvironment(docker.ApplicationSettings{Name: "myapp"})
+
+	environmentPressTab(&form) // empty value
+	environmentPressTab(&form) // done
+
+	result, cmd := form.Update(keyPressMsg("enter"))
+	form = result.(SettingsFormEnvironment)
+	require.NotNil(t, cmd)
+	msg := cmd()
+	submitMsg, ok := msg.(SettingsSectionSubmitMsg)
+	require.True(t, ok)
+	assert.Nil(t, submitMsg.Settings.EnvVars)
+}
+
+func TestSettingsFormEnvironment_Submit_SkipsEmptyKeys(t *testing.T) {
+	form := NewSettingsFormEnvironment(docker.ApplicationSettings{
+		EnvVars: map[string]string{"KEEP": "yes"},
+	})
+
+	// Tab to the empty row's value and type something (key stays empty)
+	environmentPressTab(&form) // KEEP value
+	environmentPressTab(&form) // empty key
+	environmentPressTab(&form) // empty value
+	environmentTypeText(&form, "orphan")
+	// Navigate to done
+	for form.form.Focused() != form.form.submitIndex() {
+		environmentPressTab(&form)
+	}
+
+	result, cmd := form.Update(keyPressMsg("enter"))
+	form = result.(SettingsFormEnvironment)
+	require.NotNil(t, cmd)
+	msg := cmd()
+	submitMsg := msg.(SettingsSectionSubmitMsg)
+	assert.Equal(t, map[string]string{"KEEP": "yes"}, submitMsg.Settings.EnvVars)
+}
+
+func TestSettingsFormEnvironment_Cancel(t *testing.T) {
+	form := NewSettingsFormEnvironment(docker.ApplicationSettings{})
+
+	// Navigate to cancel button
+	environmentPressTab(&form) // empty value
+	environmentPressTab(&form) // done
+	environmentPressTab(&form) // cancel
+
+	result, cmd := form.Update(keyPressMsg("enter"))
+	form = result.(SettingsFormEnvironment)
+	require.NotNil(t, cmd)
+	msg := cmd()
+	_, ok := msg.(SettingsSectionCancelMsg)
+	assert.True(t, ok, "expected SettingsSectionCancelMsg, got %T", msg)
+}
+
+func TestSettingsFormEnvironment_AutoGrow(t *testing.T) {
+	form := NewSettingsFormEnvironment(docker.ApplicationSettings{})
+	assert.Equal(t, 2, form.form.ItemCount(), "1 empty row = 2 items")
+
+	environmentTypeText(&form, "X")
+	assert.Equal(t, 4, form.form.ItemCount(), "typing in last key adds new row")
+
+	environmentTypeText(&form, "Y")
+	assert.Equal(t, 4, form.form.ItemCount(), "no extra row while still in same key")
+}
+
+func TestSettingsFormEnvironment_AutoGrow_VisibleInView(t *testing.T) {
+	form := NewSettingsFormEnvironment(docker.ApplicationSettings{})
+	environmentSendWindowSize(&form, 80, 40)
+
+	environmentTypeText(&form, "NEW_KEY")
+	view := form.View()
+
+	assert.Contains(t, view, "NEW_KEY", "typed key visible in rendered view")
+}
+
+func TestSettingsFormEnvironment_FocusBorder_MovesOnTab(t *testing.T) {
+	form := NewSettingsFormEnvironment(docker.ApplicationSettings{
+		EnvVars: map[string]string{"A": "1"},
+	})
+	environmentSendWindowSize(&form, 80, 40)
+
+	view1 := form.View()
+
+	environmentPressTab(&form)
+	view2 := form.View()
+
+	assert.NotEqual(t, view1, view2, "view changes when focus moves")
+}
+
+func environmentPressTab(form *SettingsFormEnvironment) {
+	updateSettingsForm(form, keyPressMsg("tab"))
+}
+
+func environmentTypeText(form *SettingsFormEnvironment, text string) {
+	for _, r := range text {
+		updateSettingsForm(form, keyPressMsg(string(r)))
+	}
+}
+
+func environmentSendWindowSize(form *SettingsFormEnvironment, w, h int) {
+	updateSettingsForm(form, tea.WindowSizeMsg{Width: w, Height: h})
+}
