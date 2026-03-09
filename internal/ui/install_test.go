@@ -297,6 +297,26 @@ func TestInstall_FailureRestartsLogoOnlyWhenNoApps(t *testing.T) {
 	assert.Nil(t, cmd)
 }
 
+func TestInstall_HelpKeyShownOnHostnameScreen(t *testing.T) {
+	m := newTestInstall()
+	m, _ = updateInstall(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// App list: no F1
+	view := ansi.Strip(m.View())
+	assert.NotContains(t, view, "F1")
+
+	// Image form: no F1
+	m, _ = updateInstall(m, InstallCustomSelectedMsg{})
+	view = ansi.Strip(m.View())
+	assert.NotContains(t, view, "F1")
+
+	// Hostname: F1 shown
+	m, _ = updateInstall(m, InstallImageSubmitMsg{ImageRef: "nginx:latest"})
+	view = ansi.Strip(m.View())
+	assert.Contains(t, view, "F1")
+	assert.Contains(t, view, "help")
+}
+
 func TestOverlayBlockContainsRow(t *testing.T) {
 	block := newOverlayBlock("hello\nworld", 5, 10)
 	assert.Equal(t, 5, block.width) // "hello" and "world" are both 5 chars

@@ -13,8 +13,10 @@ import (
 )
 
 var installKeys = struct {
+	Help key.Binding
 	Back key.Binding
 }{
+	Help: WithHelp(NewKeyBinding("f1"), "F1", "help"),
 	Back: WithHelp(NewKeyBinding("esc"), "esc", "back"),
 }
 
@@ -41,6 +43,7 @@ type Install struct {
 	imageForm     InstallImageForm
 	hostnameForm  InstallHostnameForm
 	activity      *InstallActivity
+	popupHelp     *PopupHelp
 	starfield     *Starfield
 	logo          *Logo
 	err           error
@@ -87,8 +90,28 @@ func (m Install) Init() tea.Cmd {
 }
 
 func (m Install) Update(msg tea.Msg) (Component, tea.Cmd) {
+	if m.popupHelp != nil {
+		switch msg := msg.(type) {
+		case PopupHelpCloseMsg:
+			m.popupHelp = nil
+			return m, nil
+		case tea.KeyPressMsg, MouseEvent, tea.MouseWheelMsg:
+			ph := *m.popupHelp
+			var cmd tea.Cmd
+			ph, cmd = ph.Update(msg)
+			m.popupHelp = &ph
+			return m, cmd
+		}
+	}
+
+	m.updateHelpBindings()
+
 	switch msg := msg.(type) {
+	case PopupHelpCloseMsg:
+		return m, nil
+
 	case tea.WindowSizeMsg:
+		m.popupHelp = nil
 		m.width, m.height = msg.Width, msg.Height
 		m.help.SetWidth(m.width)
 		var cmds []tea.Cmd
@@ -127,6 +150,13 @@ func (m Install) Update(msg tea.Msg) (Component, tea.Cmd) {
 		if m.state != installStateActivity {
 			if m.err != nil {
 				m.err = nil
+			}
+			if key.Matches(msg, installKeys.Help) {
+				if title, content := m.helpForState(); content != "" {
+					ph := NewPopupHelp(title, content, m.width, m.height)
+					m.popupHelp = &ph
+					return m, nil
+				}
 			}
 			if key.Matches(msg, installKeys.Back) {
 				return m.handleBack()
@@ -213,21 +243,29 @@ func (m Install) View() string {
 
 	var helpLine string
 	if m.state != installStateActivity {
+		m.updateHelpBindings()
 		helpLine = Styles.CenteredLine(m.width, m.help.View())
 	}
 
 	middleH := m.middleHeight()
 
+	var result string
 	if m.starfield != nil {
 		if m.showLogo() && m.state != installStateActivity {
-			return m.renderLogoWithStarfield(contentView, middleH) + helpLine
+			result = m.renderLogoWithStarfield(contentView, middleH) + "\n" + helpLine
+		} else {
+			result = m.renderMiddleWithStarfield(contentView, middleH) + "\n" + helpLine
 		}
-		return m.renderMiddleWithStarfield(contentView, middleH) + helpLine
+	} else {
+		middle := m.renderMiddleCentered(contentView, middleH)
+		titleLine := Styles.TitleRule(m.width, "install")
+		result = titleLine + "\n\n" + middle + helpLine
 	}
 
-	middle := m.renderMiddleCentered(contentView, middleH)
-	titleLine := Styles.TitleRule(m.width, "install")
-	return titleLine + "\n\n" + middle + helpLine
+	if m.popupHelp != nil {
+		return OverlayCenter(result, m.popupHelp.View(), m.width, m.height)
+	}
+	return result
 }
 
 // Private
@@ -424,6 +462,37 @@ func (m Install) writeOverlayRow(sb *strings.Builder, row, left, width int, line
 	sb.WriteString(line)
 	sb.WriteString(m.starfield.RenderRow(row, left+width, m.width))
 }
+
+func (m *Install) updateHelpBindings() {
+	if _, content := m.helpForState(); content != "" {
+		m.help.SetBindings([]key.Binding{installKeys.Help, installKeys.Back})
+	} else {
+		m.help.SetBindings([]key.Binding{installKeys.Back})
+	}
+}
+
+func (m Install) helpForState() (string, string) {
+	switch m.state {
+	case installStateHostname:
+		return "Setting the hostname", installHostnameHelpText
+	}
+	return "", ""
+}
+
+const (
+	installHostnameHelpText = `On this screen should enter the hostname where you'll be running this application.
+
+If you're installing an application on the Internet, this should use a domain name that you own. You can use a subdomain so that one domain can support multiple applications.
+
+For example, if you own example.com and are installing Campfire, you might choose chat.example.com as your hostname.
+
+When you use your own domain on a publicly-reachable server, ONCE will set up SSL automatically to secure your application.
+
+If you're installing only on your local machine, you can use a localhost domain instead. You can still use a subdomain to support multiple applications (like chat.localhost). When you install an application in this way, it won't get the automatic SSL.
+
+You can always change these settings later, too: look for them under Settings -> Application.
+`
+)
 
 func blockWidth(lines []string) int {
 	width := 0

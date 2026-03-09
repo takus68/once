@@ -154,7 +154,12 @@ func (m *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		})
 		return m, cmd
 
-	case tea.MouseReleaseMsg, tea.MouseMotionMsg, tea.MouseWheelMsg:
+	case tea.MouseWheelMsg:
+		var cmd tea.Cmd
+		m.currentScreen, cmd = m.currentScreen.Update(msg)
+		return m, cmd
+
+	case tea.MouseReleaseMsg, tea.MouseMotionMsg:
 		return m, nil
 
 	case tea.KeyPressMsg:
