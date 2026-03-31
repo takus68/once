@@ -750,68 +750,117 @@ func TestDeployWithSettings(t *testing.T) {
 	assertContainerResources(t, ctx, containerName, 1e9, 512*1024*1024)
 }
 
-func TestRedeployToExistingHost(t *testing.T) {
+func TestUpdatePreservesSettings(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	ns, err := docker.NewNamespace("once-redeploy-test")
+	ns, err := docker.NewNamespace("once-update-test")
 	require.NoError(t, err)
 	defer ns.Teardown(ctx, true)
 
 	require.NoError(t, ns.EnsureNetwork(ctx))
 	require.NoError(t, ns.Proxy().Boot(ctx, getProxyPorts(t)))
 
-	// Initial deploy with settings
-	initialSettings := docker.ApplicationSettings{
-		Name:    "redeployapp",
+	// Deploy with full settings
+	app := deployApp(t, ctx, ns, docker.ApplicationSettings{
+		Name:    "updateapp",
 		Image:   "ghcr.io/basecamp/once-campfire:main",
-		Host:    "redeploy.localhost",
-		EnvVars: map[string]string{"OLD_VAR": "old_value"},
+		Host:    "update.localhost",
+		EnvVars: map[string]string{"MY_VAR": "my_value"},
 		SMTP: docker.SMTPSettings{
-			Server: "smtp.old.com",
-			Port:   "25",
+			Server: "smtp.example.com",
+			Port:   "587",
 		},
 		Resources: docker.ContainerResources{CPUs: 2, MemoryMB: 1024},
-	}
+	})
 
-	app := deployApp(t, ctx, ns, initialSettings)
 	vol, err := app.Volume(ctx)
 	require.NoError(t, err)
 	originalSecretKeyBase := vol.SecretKeyBase()
 
-	// Redeploy to the same host with different settings via DeployApplication
-	newSettings := docker.ApplicationSettings{
-		Image:   "ghcr.io/basecamp/once-campfire:main",
-		Host:    "redeploy.localhost",
-		EnvVars: map[string]string{"NEW_VAR": "new_value"},
-	}
-
-	redeployedApp, isNew, err := ns.DeployApplication(ctx, newSettings, nil)
-	require.NoError(t, err)
-	assert.False(t, isNew)
+	// Update only the env vars, leaving everything else as-is
+	newSettings := app.Settings
+	newSettings.EnvVars = map[string]string{"NEW_VAR": "new_value"}
+	app.Settings = newSettings
+	require.NoError(t, app.Deploy(ctx, nil))
 	require.NoError(t, ns.Refresh(ctx))
 
-	// Should still be one app
-	assert.Len(t, ns.Applications(), 1)
+	updatedApp := ns.ApplicationByHost("update.localhost")
+	require.NotNil(t, updatedApp)
 
 	// Name preserved
-	assert.Equal(t, "redeployapp", redeployedApp.Settings.Name)
+	assert.Equal(t, "updateapp", updatedApp.Settings.Name)
 
-	// Volume preserved
-	vol2, err := redeployedApp.Volume(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, originalSecretKeyBase, vol2.SecretKeyBase())
+	// SMTP and resources preserved
+	assert.Equal(t, "smtp.example.com", updatedApp.Settings.SMTP.Server)
+	assert.Equal(t, "587", updatedApp.Settings.SMTP.Port)
+	assert.Equal(t, 2, updatedApp.Settings.Resources.CPUs)
+	assert.Equal(t, 1024, updatedApp.Settings.Resources.MemoryMB)
 
-	// New env vars present, old ones gone
-	containerName, err := redeployedApp.ContainerName(ctx)
+	// Env vars replaced
+	containerName, err := updatedApp.ContainerName(ctx)
 	require.NoError(t, err)
 	envVars := inspectContainerEnv(t, ctx, containerName)
 	assert.Contains(t, envVars, "NEW_VAR=new_value")
-	assertEnvAbsent(t, envVars, "OLD_VAR")
-	assertEnvAbsent(t, envVars, "SMTP_ADDRESS")
+	assertEnvAbsent(t, envVars, "MY_VAR")
 
-	// Resources cleared (zero values)
-	assertContainerResources(t, ctx, containerName, 0, 0)
+	// Volume preserved
+	vol2, err := updatedApp.Volume(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, originalSecretKeyBase, vol2.SecretKeyBase())
+}
+
+func TestUpdateChangeHost(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	ns, err := docker.NewNamespace("once-update-host-test")
+	require.NoError(t, err)
+	defer ns.Teardown(ctx, true)
+
+	require.NoError(t, ns.EnsureNetwork(ctx))
+	require.NoError(t, ns.Proxy().Boot(ctx, getProxyPorts(t)))
+
+	app := deployApp(t, ctx, ns, docker.ApplicationSettings{
+		Name:  "hostchangeapp",
+		Image: "ghcr.io/basecamp/once-campfire:main",
+		Host:  "old.localhost",
+	})
+
+	// Change the host
+	app.Settings.Host = "new.localhost"
+	require.NoError(t, app.Deploy(ctx, nil))
+	require.NoError(t, ns.Refresh(ctx))
+
+	assert.Nil(t, ns.ApplicationByHost("old.localhost"))
+	assert.NotNil(t, ns.ApplicationByHost("new.localhost"))
+}
+
+func TestUpdateHostCollision(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	ns, err := docker.NewNamespace("once-update-collision-test")
+	require.NoError(t, err)
+	defer ns.Teardown(ctx, true)
+
+	require.NoError(t, ns.EnsureNetwork(ctx))
+	require.NoError(t, ns.Proxy().Boot(ctx, getProxyPorts(t)))
+
+	deployApp(t, ctx, ns, docker.ApplicationSettings{
+		Name:  "app1",
+		Image: "ghcr.io/basecamp/once-campfire:main",
+		Host:  "host1.localhost",
+	})
+
+	app2 := deployApp(t, ctx, ns, docker.ApplicationSettings{
+		Name:  "app2",
+		Image: "ghcr.io/basecamp/once-campfire:main",
+		Host:  "host2.localhost",
+	})
+
+	// Attempting to change app2's host to app1's host should be detected
+	assert.True(t, ns.HostInUseByAnother("host1.localhost", app2.Settings.Name))
 }
 
 // Helpers
